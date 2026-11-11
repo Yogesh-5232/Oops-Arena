@@ -128,11 +128,21 @@ export async function drivePrediction(room, frames, watcher, { hitch = false, ac
   let backlog;
   if (hitch) {
     // The server's backlog of this client's inputs must drain back after the
-    // catch-up burst rather than stay inflated.
-    const before = input.pendingCount;
+    // catch-up burst rather than stay inflated. Read the server's own queue
+    // (needs PLAYGROUND_TELEMETRY=1): the client's pendingCount also counts
+    // inputs in flight and moves by one or two between 20 Hz patches.
+    const sampleBacklog = async () => {
+      const samples = [];
+      for (let i = 0; i < 5; i++) {
+        await runFrames(6);
+        samples.push((await room.request('diagnostics', undefined, { timeout: 2000 })).inputBacklog);
+      }
+      return samples.sort((a, b) => a - b)[2]; // median of five
+    };
+    const before = await sampleBacklog();
     await delay(400);
-    await runFrames(90);
-    backlog = { before, afterHitch: input.pendingCount };
+    await runFrames(60);
+    backlog = { before, afterHitch: await sampleBacklog() };
   }
   await until(() => {
     predict.tick(performance.now());

@@ -5,7 +5,8 @@ import { delay, drivePrediction, startBuiltServer, until } from './netcheck.mjs'
 
 const STEP_DISTANCE = 6 / 30; // speed 6 units/s at 30 Hz
 const port = process.env.SMOKE_PORT ?? '2599';
-const server = await startBuiltServer(port);
+// Telemetry lets the backlog check read the server's own input queue.
+const server = await startBuiltServer(port, { PLAYGROUND_TELEMETRY: '1' });
 const client = new Client(`http://localhost:${port}`);
 const rooms = new Set();
 async function track(promise) {
@@ -78,7 +79,8 @@ try {
       assert.ok(frames >= 50, `only ${frames} remote frames sampled`);
       assert.ok(smoothFrozen <= frames * 0.15, `smoothed remote froze on ${smoothFrozen} of ${frames} frames`);
       assert.ok(smoothFrozen < rawFrozen, `smoothing (${smoothFrozen} frozen) must beat raw updates (${rawFrozen} frozen)`);
-      // Before catch-up credit, a 400 ms hitch left this permanently about 3 higher.
+      // Server-side queue, median of five readings. Before catch-up credit, a
+      // 400 ms hitch left it permanently about 3 higher.
       assert.ok(run.backlog.afterHitch <= run.backlog.before + 1,
         `input backlog stayed at ${run.backlog.afterHitch} after a hitch (was ${run.backlog.before})`);
     }
