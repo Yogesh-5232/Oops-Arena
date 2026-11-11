@@ -71,8 +71,9 @@ export function spawnPlayer(slot: number): Player {
 }
 
 /** Puts a player back on its spawn, at rest. */
-export function resetToSpawn(player: Player): void {
-  const spawn = GREYBOX_ARENA.spawns[player.slot] ?? GREYBOX_ARENA.spawns[0]!;
+export function resetToSpawn(
+  player: Player, spawn: Pick<Player, 'x' | 'y' | 'z'> = GREYBOX_ARENA.spawns[player.slot] ?? GREYBOX_ARENA.spawns[0]!,
+): void {
   player.x = spawn.x;
   player.y = spawn.y;
   player.z = spawn.z;
@@ -91,7 +92,10 @@ const position: Vec3 = [0, 0, 0];
  * One fixed step of player movement. Deterministic: the server and client
  * prediction run it on identical state and inputs and get identical results.
  */
-export function step(player: Player, input: Input, dt: number, boxes: readonly Box[] = GREYBOX_ARENA.boxes): void {
+export function step(
+  player: Player, input: Input, dt: number, boxes: readonly Box[] = GREYBOX_ARENA.boxes,
+  spawn?: Pick<Player, 'x' | 'y' | 'z'>,
+): void {
   const m = MOVEMENT;
   const moving = input.x !== 0 || input.z !== 0;
   if (moving && player.mode !== MODE.diving) {
@@ -158,5 +162,5 @@ export function step(player: Player, input: Input, dt: number, boxes: readonly B
     player.modeTicks = m.recoverTicks;
     player.vx = player.vz = 0;
   }
-  if (player.y < GREYBOX_ARENA.killY) resetToSpawn(player);
+  if (player.y < GREYBOX_ARENA.killY) resetToSpawn(player, spawn);
 }

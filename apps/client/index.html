@@ -1,1 +1,35 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chaos Playground</title></head><body><canvas id="game"></canvas><main><h1>Chaos Playground</h1><p id="status" role="status">Ready to play</p><button id="join">Join playground</button><p>WASD or arrows to move · Space to jump · Space twice to dive</p></main><script type="module" src="/src/main.ts"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chaos Playground</title>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <main>
+    <h1>Chaos Playground</h1>
+    <p id="status" role="status">Ready to play</p>
+    <button id="join">Join playground</button>
+    <form id="private-entry" novalidate>
+      <label>Capacity <input id="capacity" type="number" min="4" max="12" value="12" required></label>
+      <button id="create-private" type="button">Create private race</button>
+      <label>Room code <input id="room-code" maxlength="6" minlength="6" pattern="[A-Za-z2-9]{6}" required autocomplete="off" autocapitalize="characters"></label>
+      <button type="submit">Join private race</button>
+    </form>
+    <section id="private-room" hidden>
+      <p id="room-invite"></p>
+      <p id="match-phase"></p>
+      <ul id="guests"></ul>
+      <button id="ready">Ready</button>
+      <button id="start-match">Start race</button>
+      <section id="match-results" hidden>
+        <h2 id="results-title">Race results</h2>
+        <ol id="standings"></ol>
+      </section>
+    </section>
+    <p>WASD or arrows to move · Space to jump ? Space twice to dive</p>
+  </main>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

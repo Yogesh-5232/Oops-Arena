@@ -1,1 +1,7 @@
 *{box-sizing:border-box}body{margin:0;background:#142635;font-family:system-ui,sans-serif;color:#fff}canvas{display:block;width:100vw;height:100vh}main{position:absolute;top:24px;left:24px;padding:20px 24px;border-radius:16px;background:#142635e8;max-width:360px}h1{font-size:24px;margin:0 0 12px}p{font-size:14px;color:#d2e8ef}button{border:0;border-radius:8px;background:#bafa76;color:#193223;font:inherit;padding:12px 18px;cursor:pointer}button:disabled{opacity:.5}
+main{max-height:calc(100vh - 48px);overflow:auto}
+#private-entry:not([hidden]){display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;margin:12px 0}
+#private-entry label{font-size:13px}
+#room-code{width:8ch;text-transform:uppercase}
+#private-room ul,#private-room ol{padding-left:1.3em;font-size:14px}
+#private-room h2{font-size:17px}

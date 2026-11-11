@@ -41,6 +41,16 @@ The 5.770 correction at 180 ms was a single outlier, most likely a fall off an e
 
 Correction counts reported before this measurement (local smoke and browser checks during the Phase 2 feel work) were not measured: the SDK records correction sizes only when `warnOnDivergence` is set. With it enabled the local smoke run measures 0 of 90.
 
+## Phase 3 private Dash browser playtest
+
+Use the LAN setup and at least four browser clients on separate devices. Record the commit, device/browser combinations and elapsed match time.
+
+1. Create a private room, share the code, join as guests, and ready up. Confirm a guest cannot start and a host cannot start before four guests are ready.
+2. Start with four ready guests and, if available, a fifth unready guest. Verify countdown and admission lock. The fifth guest stays in the room and waits for the next race.
+3. Have some racers finish and others run out of time. Verify the gates only count in order, all browsers show the same standings, and the room returns to the plaza at the two-minute deadline.
+4. Repeat with a late-loading browser, a reload during a race, and the host leaving. Check recovery, host transfer, and the fixed deadline.
+5. Rematch in the same room. Verify a race with too few remaining players displays an interrupted result.
+
 ## Functional matrix
 
 | Area | Required scenarios | Acceptance |

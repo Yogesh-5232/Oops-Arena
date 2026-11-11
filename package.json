@@ -13,10 +13,11 @@
                     "dev:lan": "concurrently -k -n server,client \"npm run dev -w @chaos/server\" \"npm run dev:lan -w @chaos/client\"",
                     "build":  "npm run build --workspaces --if-present",
                     "typecheck":  "tsc --noEmit",
-                    "test":  "tsx --test packages/shared/src/*.test.ts",
+                    "test":  "tsx --test packages/shared/src/*.test.ts apps/server/src/*.test.ts",
                     "smoke": "tsx scripts/smoke.mjs",
                     "lag": "node scripts/lag-proxy.mjs",
                     "lagtest": "tsx scripts/lagtest.mjs",
+                    "smoke:private": "tsx scripts/private-smoke.mjs",
                     "check":  "npm run typecheck \u0026\u0026 npm test \u0026\u0026 npm run build"
                 },
     "devDependencies":  {
