@@ -7,10 +7,10 @@ test('walls block movement outside the gap and the race requires forward gates i
   const race = new DashRace(['a'], id => id);
   const gate = DASH_GATES[0];
   const blocked = { ...spawnPlayer(0), x: 0, z: gate.z + 0.7 };
-  simulateInput(blocked, { x: 0, z: -1, jump: false }, 1 / 30, DASH_BOXES);
+  simulateInput(blocked, { x: 0, z: -1, jump: false, tick: 0 }, 1 / 30, DASH_BOXES);
   assert.ok(blocked.z > gate.z + 0.5);
   const side = { ...spawnPlayer(0), x: gate.x + gate.halfWidth - 0.55, z: gate.z };
-  simulateInput(side, { x: 1, z: 0, jump: false }, 1 / 30, DASH_BOXES);
+  simulateInput(side, { x: 1, z: 0, jump: false, tick: 0 }, 1 / 30, DASH_BOXES);
   assert.equal(side.x, gate.x + gate.halfWidth - 0.5);
   assert.equal(race.record('a', { x: 0, z: -11 }, { x: 0, z: -13 }, 100), 0);
   assert.equal(race.record('a', { x: gate.x, z: 3 }, { x: gate.x, z: 5 }, 200), 0);

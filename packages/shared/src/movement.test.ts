@@ -6,7 +6,7 @@ import {
 } from './index.js';
 
 const DT = 1 / 30;
-const input = (x = 0, z = 0, jump = false): Input => ({ x, z, jump });
+const input = (x = 0, z = 0, jump = false, tick = 0): Input => ({ x, z, jump, tick });
 /** A standing player at a chosen spot, built from a real spawn so every field is set. */
 function playerAt(x: number, y: number, z: number): Player {
   const player = spawnPlayer(0);
@@ -20,9 +20,9 @@ function run(player: Player, command: Input, ticks: number, boxes?: readonly Box
 const flatFloor: Box = { id: 'f', kind: 'floor', min: [-50, -1, -50], max: [50, 0, 50] };
 
 test('repairs nonfinite input and normalizes diagonals', () => {
-  const broken = { x: Infinity, z: NaN, jump: 'yes' } as unknown as Input;
+  const broken = { x: Infinity, z: NaN, jump: 'yes', tick: -3 } as unknown as Input;
   sanitizeInput(broken);
-  assert.deepEqual(broken, { x: 0, z: 0, jump: false });
+  assert.deepEqual(broken, { x: 0, z: 0, jump: false, tick: 0 });
   const diagonal = input(1, 1, true);
   sanitizeInput(diagonal);
   assert.ok(Math.abs(Math.hypot(diagonal.x, diagonal.z) - 1) < 1e-9);

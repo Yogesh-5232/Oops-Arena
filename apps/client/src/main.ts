@@ -1,7 +1,10 @@
 import * as pc from 'playcanvas';
 import { Client } from '@colyseus/sdk';
 import { Predict, classifyDrift, type Reconciler } from '@colyseus/sdk/predict';
-import { DASH_BOXES, DASH_GATES, GREYBOX_ARENA, MODE, dashSpawn, simulateInput, type Box, type Input, type Player } from '@chaos/shared';
+import {
+  DASH_BOXES, DASH_GATES, GREYBOX_ARENA, MODE, MOVERS, TICK_MS, dashSpawn, moverCenter, moverWarns, nextInputTick,
+  simulateInput, type Box, type Input, type Player,
+} from '@chaos/shared';
 import { capacity, createButton, joinCode, privateEntry, privatePanel } from './private-ui.js';
 import './style.css';
 
@@ -42,10 +45,10 @@ function avatar(id: string, color: pc.Color) {
 }
 const facing = new pc.Quat();
 const tilt = new pc.Quat();
-/** Turns an avatar toward its facing direction and tips it forward while diving (display only). */
+/** Turns an avatar toward its facing; tips it forward while diving and back when knocked (display only). */
 function poseAvatar(entity: pc.Entity, state: Pick<Player, 'faceX' | 'faceZ' | 'mode'>) {
   facing.setFromEulerAngles(0, Math.atan2(state.faceX, state.faceZ) * pc.math.RAD_TO_DEG, 0);
-  tilt.setFromEulerAngles(state.mode === MODE.diving ? 60 : 0, 0, 0);
+  tilt.setFromEulerAngles(state.mode === MODE.diving ? 60 : state.mode === MODE.stunned ? -50 : 0, 0, 0);
   entity.setRotation(facing.mul(tilt));
 }
 // The arena is drawn from the same box list the simulation collides with.
@@ -73,8 +76,40 @@ DASH_GATES.forEach((gate, index) => {
 function showCourse(visible: boolean) {
   for (const entity of course) entity.enabled = visible;
   for (const entity of playground) entity.enabled = !visible;
+  for (const entity of checkpointEntities) entity.enabled = !visible;
+}
+// Checkpoint pads: thin markers on the floor (they are triggers, not solid).
+const checkpointEntities = GREYBOX_ARENA.checkpoints.map(pad => {
+  const [x0, , z0] = pad.min;
+  const [x1, , z1] = pad.max;
+  const entity = box(pad.id, new pc.Color(0.35, 0.75, 0.95), new pc.Vec3(x1 - x0, 0.06, z1 - z0));
+  entity.setPosition((x0 + x1) / 2, pad.min[1] + 0.03, (z0 + z1) / 2);
+  return entity;
+});
+// Movers: posed every frame from the shared formula, so they need no network data.
+const MOVER_COLORS = { ferry: new pc.Color(0.85, 0.6, 0.35), pusher: new pc.Color(0.75, 0.25, 0.25) } as const;
+const WARNING_COLOR = new pc.Color(1, 0.85, 0.2);
+const moverEntities = MOVERS.map(mover => {
+  const entity = box(mover.id, MOVER_COLORS[mover.kind], new pc.Vec3(...mover.size));
+  const material = entity.render!.meshInstances[0]!.material as pc.StandardMaterial;
+  return { mover, entity, material };
+});
+const moverCenterScratch: [number, number, number] = [0, 0, 0];
+/** Poses movers at a (possibly fractional) world tick and shows hazard warnings. */
+function poseMovers(tick: number) {
+  for (const { mover, entity, material } of moverEntities) {
+    entity.setPosition(...moverCenter(mover, tick, moverCenterScratch));
+    const warning = moverWarns(mover, Math.floor(tick));
+    const color = warning ? WARNING_COLOR : MOVER_COLORS[mover.kind];
+    if (!material.diffuse.equals(color)) {
+      material.diffuse.copy(color);
+      material.emissive.copy(warning ? new pc.Color(0.4, 0.3, 0) : pc.Color.BLACK);
+      material.update();
+    }
+  }
 }
 showCourse(false);
+poseMovers(0);
 app.start();
 const keys = new Set<string>();
 let jump = false;
@@ -190,7 +225,7 @@ async function connect(action: 'playground' | 'create' | 'join') {
             // replay never starts from a stale value when the step gains state.
             // No snap here: the SDK compares it against every field, including vy,
             // so a mispredicted jump (vy off by ~6) would pop the avatar instead of
-            // gliding. Respawns will reset the reconciler explicitly.
+            // gliding. Respawns are cut to instead (see the respawns counter below).
             // The SDK only records correction size and drift when a divergence
             // tolerance is set; Infinity turns the measurement on without warnings.
             warnOnDivergence: Infinity,
@@ -274,10 +309,22 @@ async function connect(action: 'playground' | 'create' | 'join') {
     // The clock is built from PlayCanvas' frame dt, which comes from the vsync-aligned
     // requestAnimationFrame timestamp; reading performance.now() here would add scheduling jitter.
     let frameClock = performance.now();
+    // World tick estimate: the tick in the latest update plus how long ago the
+    // server sent it. Inputs are stamped with consecutive ticks from it.
+    const estimateTick = () => {
+      const tick = (room.state as { tick?: number }).tick ?? 0;
+      const sentAt = room.clock.lastServerTime();
+      return sentAt > 0 ? tick + (room.clock.serverNow() - sentAt) / TICK_MS : tick;
+    };
+    let sentTick: number | undefined;
+    let shownRespawns: number | undefined;
+    let cutFrames = 0;
     const frame = (dt: number) => {
       frameClock += dt * 1000;
       const steps = predict.tick(frameClock);
       for (let i = 0; i < steps; i++) {
+        sentTick = nextInputTick(sentTick, estimateTick());
+        input.data.tick = sentTick;
         const right = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
         const back = Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp'));
         input.data.x = right * Math.cos(yaw) + back * Math.sin(yaw);
@@ -294,18 +341,28 @@ async function connect(action: 'playground' | 'create' | 'join') {
         if (pulled > CORRECTION_FLOOR) corrections++;
         worstCorrection = Math.max(worstCorrection, pulled);
       }
+      // Movers are drawn at our own smoothed simulation tick, the same moment our
+      // predicted avatar is drawn at, so a rider stays glued to the deck.
+      poseMovers(me && meSource ? predict.value(meSource, 'simTick') : estimateTick());
+      // A respawn jumps the predicted position: cut to it instead of gliding for a frame.
+      if (me && me.state.respawns !== shownRespawns) {
+        if (shownRespawns !== undefined) cutFrames = 2;
+        shownRespawns = me.state.respawns;
+      }
       // One read for everyone: predicted for the local avatar, interpolated for the rest.
       for (const [id, entity] of avatars) {
         const source = sources.get(id);
         if (!source) continue;
-        const x = predict.value(source, 'x');
-        const y = predict.value(source, 'y');
-        const z = predict.value(source, 'z');
+        const exact = entity === localAvatar && cutFrames > 0 ? me?.state : undefined;
+        const x = exact ? exact.x : predict.value(source, 'x');
+        const y = exact ? exact.y : predict.value(source, 'y');
+        const z = exact ? exact.z : predict.value(source, 'z');
         entity.setPosition(x, y, z);
         // Facing and dive tilt: our own from the prediction, others from the latest update.
         poseAvatar(entity, entity === localAvatar && me ? me.state : source);
         if (entity === localAvatar) followCamera(x, y, z);
       }
+      if (cutFrames > 0) cutFrames--;
     };
     app.on('update', frame);
     room.onLeave(code => {

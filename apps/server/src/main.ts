@@ -2,7 +2,10 @@ import { randomInt } from 'node:crypto';
 import { Server, Room, ServerError, matchMaker, type Client } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { schema, t } from '@colyseus/schema';
-import { CAPACITY, DASH_BOXES, INPUT_BUFFER, availableSpawn, dashSpawn, resetToSpawn, simulateInput, spawnPlayer, type DashStanding, type Input, type Player } from '@chaos/shared';
+import {
+  CAPACITY, DASH_BOXES, INPUT_BUFFER, availableSpawn, clampInputTick, dashSpawn, resetToSpawn, simulateInput, spawnPlayer,
+  type DashStanding, type Input, type Player,
+} from '@chaos/shared';
 import { DashRace } from './dash-race.js';
 import { PrivateLobby } from './private-lobby.js';
 import { QuickMatch } from './quick-match.js';
@@ -15,18 +18,19 @@ import { QuickMatch } from './quick-match.js';
 const Avatar = schema({
   x: t.float64(), y: t.float64(), z: t.float64(),
   vx: t.float64(), vy: t.float64(), vz: t.float64(),
-  grounded: t.boolean(),
+  grounded: t.boolean(), ground: t.uint8(), simTick: t.uint32(),
   jumpBuffer: t.uint8(), coyote: t.uint8(), mode: t.uint8(), modeTicks: t.uint8(), sinceJump: t.uint8(),
+  shield: t.uint8(), checkpoint: t.uint8(), respawns: t.uint8(),
   faceX: t.float64(), faceZ: t.float64(),
   slot: t.uint8(),
 });
 const Guest = schema({ name: t.string(), connected: t.boolean(), ready: t.boolean(), racing: t.boolean(), checkpoints: t.number() });
 const State = schema({
-  players: t.map(Avatar), guests: t.map(Guest), phase: t.string(), hostId: t.string(),
+  tick: t.uint32(), players: t.map(Avatar), guests: t.map(Guest), phase: t.string(), hostId: t.string(),
   capacity: t.number(), code: t.string(), codeExpiresAt: t.float64(), remainingMs: t.number(), standings: t.string(),
 });
 /** One numbered input per client tick. float64 keeps client and server values bit-identical. */
-const MoveInput = schema({ x: t.float64(), z: t.float64(), jump: t.boolean() });
+const MoveInput = schema({ x: t.float64(), z: t.float64(), jump: t.boolean(), tick: t.uint32() });
 
 class Playground extends Room {
   state = new State();
@@ -46,7 +50,7 @@ class Playground extends Room {
     bufferMaxSize: INPUT_BUFFER,
     // No `sanitize` option: it repairs the decoder's held input in place, which
     // corrupts delta-encoded fields. simulateInput repairs a copy instead.
-    idle: { x: 0, z: 0, jump: false },
+    idle: { x: 0, z: 0, jump: false, tick: 0 },
   });
   private slots = new Map<string, number>();
   /**
@@ -86,6 +90,8 @@ class Playground extends Room {
     this.setFixedTimestep(ctx => {
       const started = performance.now();
       this.beforeTick(started);
+      const serverTick = ctx.tick;
+      this.state.tick = serverTick;
       inputBacklog = 0;
       for (const [id, player] of this.state.players) {
         const inputs = this.inputs.get(id);
@@ -104,16 +110,16 @@ class Playground extends Room {
             this.credits.set(id, Math.min(credit + 1, MAX_CATCH_UP_CREDIT));
             waitedTicks++;
           } else {
-            this.move(id, player, IDLE, ctx.dt, started);
+            this.move(id, player, IDLE, ctx.dt, started, serverTick);
             idleTicks++;
           }
           continue;
         }
-        this.move(id, player, inputs.next()!, ctx.dt, started);
+        this.move(id, player, inputs.next()!, ctx.dt, started, serverTick);
         // Catch up only above a one-input cushion: draining to empty would let
         // ordinary jitter cause stand-still ticks, which others see as stutter.
         if (credit > 0 && inputs.size > CATCH_UP_CUSHION) {
-          this.move(id, player, inputs.next()!, ctx.dt, started);
+          this.move(id, player, inputs.next()!, ctx.dt, started, serverTick);
           this.credits.set(id, credit - 1);
           catchUps++;
         }
@@ -125,14 +131,14 @@ class Playground extends Room {
   protected beforeTick(_now: number) {}
   protected afterTick(_now: number) {}
   protected canMove(_id: string): boolean { return true; }
-  protected move(_id: string, player: Player, input: Input, dt: number, _now: number) {
-    simulateInput(player, input, dt);
+  protected move(_id: string, player: Player, input: Input, dt: number, _now: number, serverTick: number) {
+    simulateInput(player, input, dt, undefined, undefined, clampInputTick(input.tick, player.simTick, serverTick));
   }
   onJoin(client: Client) {
     const slot = availableSpawn(this.slots.values());
     if (slot === undefined) throw new Error('No spawn slots available');
     const avatar = new Avatar();
-    Object.assign(avatar, spawnPlayer(slot));
+    Object.assign(avatar, spawnPlayer(slot), { simTick: this.state.tick });
     this.slots.set(client.sessionId, slot);
     this.state.players.set(client.sessionId, avatar);
   }
@@ -255,10 +261,13 @@ class PrivateDash extends Playground {
       (guest.racing && (this.state.phase === 'round' || this.state.phase === 'cooldown'))));
   }
 
-  protected override move(id: string, player: Player, input: Input, dt: number, now: number) {
+  protected override move(id: string, player: Player, input: Input, dt: number, now: number, serverTick: number) {
     const before = { x: player.x, z: player.z };
     const active = this.active;
-    simulateInput(player, input, dt, active ? DASH_BOXES : undefined, active ? dashSpawn(player.slot) : undefined);
+    simulateInput(
+      player, input, dt, active ? DASH_BOXES : undefined, active ? dashSpawn(player.slot) : undefined,
+      clampInputTick(input.tick, player.simTick, serverTick),
+    );
     if (!active) return;
     if (active.clock.acceptsScoring(now)) {
       this.state.guests.get(id)!.checkpoints = active.race.record(id, before, player, now - active.clock.roundStartsAt);
@@ -291,7 +300,7 @@ class PrivateDash extends Playground {
     void this.unlock();
   }
 }
-const IDLE: Input = { x: 0, z: 0, jump: false };
+const IDLE: Input = { x: 0, z: 0, jump: false, tick: 0 };
 /** The most ticks a player can be owed: the input buffer's length, about 270 ms. */
 const MAX_CATCH_UP_CREDIT = INPUT_BUFFER;
 /** Longest single wait for late inputs: about 270 ms, enough for a TCP retransmit stall. */

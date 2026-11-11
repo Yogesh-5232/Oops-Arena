@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { CAPACITY, GREYBOX_ARENA, HALF_EXTENTS, availableSpawn, overlaps, spawnPlayer, step } from './index.js';
 
-const still = { x: 0, z: 0, jump: false, dive: false };
+const still = { x: 0, z: 0, jump: false, tick: 0 };
 
 test('every seat has a distinct spawn standing on the floor, clear of every box', () => {
   const { spawns, boxes } = GREYBOX_ARENA;
@@ -18,6 +18,18 @@ test('every seat has a distinct spawn standing on the floor, clear of every box'
     assert.equal(player.grounded, true);
     assert.equal(player.y - HALF_EXTENTS[1], 0, 'feet on the main floor top');
   }
+});
+
+test('every checkpoint respawns the player standing still inside its own pad', () => {
+  GREYBOX_ARENA.checkpoints.forEach((pad, index) => {
+    for (const box of GREYBOX_ARENA.boxes) assert.ok(!overlaps(pad.respawn, box), `${pad.id} respawn overlaps ${box.id}`);
+    assert.ok(overlaps(pad.respawn, { id: pad.id, kind: 'floor', min: pad.min, max: pad.max }), `${pad.id} respawn is on its pad`);
+    const player = spawnPlayer(0);
+    Object.assign(player, { checkpoint: index + 1, x: pad.respawn[0], y: pad.respawn[1], z: pad.respawn[2] });
+    for (let i = 0; i < 10; i++) step(player, still, 1 / 30);
+    assert.deepEqual([player.x, player.y, player.z], [...pad.respawn], `${pad.id} respawn stays put`);
+    assert.equal(player.checkpoint, index + 1);
+  });
 });
 
 test('departures reuse the vacant slot without overlapping surviving seats', () => {

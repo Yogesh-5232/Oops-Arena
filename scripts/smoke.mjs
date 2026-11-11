@@ -95,6 +95,12 @@ try {
       // 400 ms hitch left it permanently about 3 higher.
       assert.ok(run.backlog.afterHitch <= run.backlog.before + 1,
         `input backlog stayed at ${run.backlog.afterHitch} after a hitch (was ${run.backlog.before})`);
+      // The course: knocked by the pusher, ferry ride, checkpoint and respawn, all predicted.
+      const course = await drivePrediction(peers[1], 1800, observer, { route: 'course', ackTimeout: 10000 });
+      console.log('course:', JSON.stringify({ ...course.course, corrections: course.corrections, reconciles: course.reconciles, worst: course.worst }));
+      assert.deepEqual(course.course, { hit: true, boarded: true, crossed: true, respawned: true }, 'course completed');
+      assert.deepEqual(course.predicted, course.server, 'course prediction must settle exactly on the server state');
+      assert.ok(course.corrections <= course.reconciles / 4, `${course.corrections} of ${course.reconciles} course reconciles corrected`);
     }
 
     const dropped = peers[1];
@@ -143,7 +149,7 @@ try {
     await delay(150);
     await assert.rejects(() => track(client.joinById(oldRoomId)), 'empty room must be disposed');
   }
-  console.log('PASS: numbered movement/jump, idle, malformed and flooded input, prediction agreement, smooth remote avatars, automatic and token reconnect, grace expiry, vacant spawn reuse, 12-seat cap, and room disposal');
+  console.log('PASS: numbered movement/jump, idle, malformed and flooded input, prediction agreement, smooth remote avatars, pusher/ferry/checkpoint course, automatic and token reconnect, grace expiry, vacant spawn reuse, 12-seat cap, and room disposal');
 } finally {
   for (const room of rooms) await room.leave();
   await server.stop();

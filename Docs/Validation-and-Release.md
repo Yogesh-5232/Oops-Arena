@@ -39,6 +39,17 @@ After adding collision, jump buffering, coyote time and dives (the scripted move
 
 The 5.770 correction at 180 ms was a single outlier, most likely a fall off an edge that happened on one side only after a long stall; three further 180 ms runs measured 5, 3 and 6 corrections with a worst of 0.375. Remaining corrections come from stalls that outlast the allowance. With dive moved to a double tap of jump, a further run measured 0, 0, 3 (worst 0.291) and 0 corrections across the four profiles. The local smoke run measures 0 corrections, and the smoke test checks that a trickling client lands.
 
+With the ferry, pusher and checkpoints (inputs stamped with world ticks), the lag test also runs the course with a fresh player at each profile:
+
+| Profile | Wander corrections | Course corrections | Course worst | Course completed |
+|---|---:|---:|---:|---|
+| 40 ms ±5, no stalls | 0 of 220 | 0 of 425 | 0.000 | all but the pusher hit (bot shoved behind the pusher; fixed in the bot) |
+| 100 ms ±20, 1% stalls | 1 of 184 | 6 of 237 | 0.207 | all |
+| 180 ms ±40, 2% stalls | 5 of 177 | 0 of 222 | 0.000 | all |
+| 180 ms ±40, no stalls | 0 of 216 | 0 of 263 | 0.000 | all |
+
+After the bot fix, four 40 ms course runs completed every part with 0 corrections and exact final states, and the local smoke course measured 0 of 341. Prediction settled exactly in every run.
+
 Correction counts reported before this measurement (local smoke and browser checks during the Phase 2 feel work) were not measured: the SDK records correction sizes only when `warnOnDivergence` is set. With it enabled the local smoke run measures 0 of 90.
 
 ## Phase 3 private Dash browser playtest
