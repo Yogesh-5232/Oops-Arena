@@ -1,0 +1,30 @@
+{
+    "name":  "chaos-playground",
+    "private":  true,
+    "workspaces":  [
+                       "apps/*",
+                       "packages/*"
+                   ],
+    "engines":  {
+                    "node":  "\u003e=22.19.0"
+                },
+    "scripts":  {
+                    "dev":  "concurrently -k -n server,client \"npm run dev -w @chaos/server\" \"npm run dev -w @chaos/client\"",
+                    "build":  "npm run build --workspaces --if-present",
+                    "typecheck":  "tsc --noEmit",
+                    "test":  "tsx --test packages/shared/src/*.test.ts",
+                    "smoke": "node scripts/smoke.mjs",
+                    "check":  "npm run typecheck \u0026\u0026 npm test \u0026\u0026 npm run build"
+                },
+    "devDependencies":  {
+                            "@types/node":  "^22.0.0",
+                            "concurrently":  "^9.0.0",
+                            "tsx":  "^4.0.0",
+                            "typescript":  "~5.9.3"
+                        },
+    "overrides":  {
+                      "tsup":  {
+                                   "esbuild":  "0.28.2"
+                               }
+                  }
+}

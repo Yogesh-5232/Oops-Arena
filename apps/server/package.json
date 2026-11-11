@@ -1,0 +1,19 @@
+{
+    "name":  "@chaos/server",
+    "private":  true,
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "tsx watch src/main.ts",
+                    "build":  "tsup src/main.ts --format esm --platform node --out-dir dist --no-splitting",
+                    "start":  "node dist/main.js"
+                },
+    "dependencies":  {
+                         "@chaos/shared":  "*",
+                         "@colyseus/schema":  "5.0.47",
+                         "@colyseus/core":  "0.18.12",
+                         "@colyseus/ws-transport":  "^0.18.0"
+                     },
+    "devDependencies":  {
+                            "tsup":  "^8.0.0"
+                        }
+}
