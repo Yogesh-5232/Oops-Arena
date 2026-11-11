@@ -44,7 +44,8 @@ window.addEventListener('keydown', event => {
 });
 window.addEventListener('keyup', event => keys.delete(event.code));
 const avatars = new Map<string, pc.Entity>();
-const endpoint = (import.meta as ImportMeta & { env: Record<string, string> }).env.VITE_SERVER_URL ?? 'http://localhost:2568';
+const env = (import.meta as ImportMeta & { env: { DEV: boolean; VITE_SERVER_URL?: string } }).env;
+const endpoint = env.VITE_SERVER_URL ?? `http://${env.DEV ? location.hostname : 'localhost'}:2568`;
 const reconnectKey = `playground-seat:${endpoint}`;
 const diagnosticsEnabled = new URLSearchParams(location.search).has('diagnostics');
 let yaw = 0;

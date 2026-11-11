@@ -12,7 +12,9 @@ Run `npm run smoke` after building to verify movement, jumping, spawn reuse, cap
 
 Installation on this machine used `npm install --cache D:/games/unknown/.npm-cache` because the system drive cache ran out of space. The cache is ignored by version control. A patched esbuild override is committed to address the dependency audit finding.
 
-Set `PORT` for the server and `VITE_SERVER_URL` at client build time for a remote endpoint. Production hosting must terminate HTTPS/WSS. The default localhost endpoint is for development.
+Set `PORT` for the server and `VITE_SERVER_URL` for the client when using a custom port or a separate server host. In development the client defaults to the hostname serving the page on port 2568. Production builds default to localhost unless configured at build time. Production hosting must terminate HTTPS/WSS.
+
+For the four-player playtest, run `npm run dev:lan` on the host and share its local network URL on port 5173. Use a trusted local network and allow inbound TCP 5173 and 2568 on the host if its firewall blocks the test. See the [browser playtest checklist](Validation-and-Release.md#phase-1-four-player-browser-playtest).
 
 Click the arena after joining to enable mouse look. Press Escape to release the mouse. Movement is relative to the camera. Reloading the same tab attempts to recover the seat during the 30-second reconnect window. Use Leave playground to release the seat immediately.
 

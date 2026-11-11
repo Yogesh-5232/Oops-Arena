@@ -8,7 +8,7 @@ The phase order follows technical dependencies. Visual polish can progress withi
 
 | Phase | Outcome | Dependency | Current status |
 |---|---|---|---|
-| 0 | Reproducible foundation | Existing workspace | CI configured, hosted run and clean-machine validation pending |
+| 0 | Reproducible foundation | Existing workspace | Complete. Clean install, checks, builds and smoke test passed on GitHub Actions |
 | 1 | Reliable four-player greybox | Phase 0 | Mouse controls, reload recovery and development diagnostics implemented. Physical browser validation pending |
 | 2 | Responsive networked controller | Phase 1 | Planned |
 | 3 | Complete private Dash match | Phase 2 | Planned |
@@ -33,7 +33,7 @@ The phase order follows technical dependencies. Visual polish can progress withi
 
 **Exit criteria.** Clean install, type checking, tests, builds and smoke test pass. A developer can launch the browser client using the documented instructions. Dependency findings have an explicit disposition.
 
-**Main risks.** Runtime drift, machine-specific caches, unverified production imports and differing local/CI environments. Existing build and smoke results are useful evidence, while clean-machine and CI execution remain outstanding.
+**Evidence.** The [initial GitHub Actions run](https://github.com/Yogesh-5232/Oops-Arena/actions/runs/43052905122) passed the clean install, type checks, unit tests, production builds and built-server smoke test. The earlier dependency audit finding was addressed by the esbuild override documented in the development guide.
 
 ## Phase 1 — Reliable multiplayer greybox
 

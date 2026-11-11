@@ -10,6 +10,7 @@
                 },
     "scripts":  {
                     "dev":  "concurrently -k -n server,client \"npm run dev -w @chaos/server\" \"npm run dev -w @chaos/client\"",
+                    "dev:lan": "concurrently -k -n server,client \"npm run dev -w @chaos/server\" \"npm run dev:lan -w @chaos/client\"",
                     "build":  "npm run build --workspaces --if-present",
                     "typecheck":  "tsc --noEmit",
                     "test":  "tsx --test packages/shared/src/*.test.ts",

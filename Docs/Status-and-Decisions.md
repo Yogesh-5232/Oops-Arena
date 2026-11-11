@@ -6,7 +6,7 @@ The foundation has npm workspaces, a PlayCanvas scene and follow camera, a Colys
 
 The client and server share the greybox floor, movement bounds and spawn definitions. The server tracks occupied slots, including reconnect reservations, and releases them when a player leaves or a reservation expires. On blur or when the page becomes hidden, the client clears local controls and asks the server to discard the current command and buffered jump.
 
-The local SDK smoke test covers three room lifecycles, including four-client movement and jumping, automatic and token-based recovery of the original seat, reservation expiry, vacant spawn reuse, the 12-seat limit, and empty room disposal. Browser mouse look, per-tab reload recovery, and opt-in diagnostics are implemented. Clean-machine and hosted CI evidence and physical browser testing are still pending. The current preset constants do not enforce match deadlines.
+Phase 0 passed a clean install, checks, production builds and the SDK smoke test on [GitHub Actions](https://github.com/Yogesh-5232/Oops-Arena/actions/runs/43052905122). The smoke test covers four-client movement and jumping, automatic and token-based recovery of the original seat, reservation expiry, vacant spawn reuse, the 12-seat limit and empty room disposal. Browser mouse look, per-tab reload recovery, and opt-in diagnostics are implemented. The four-player browser playtest is the remaining Phase 1 gate. The current preset constants do not enforce match deadlines.
 
 ## Decisions to validate
 

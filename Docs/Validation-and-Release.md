@@ -4,6 +4,17 @@
 
 The previous setup run passed type checking, three shared-input/movement/preset regression tests, client/server production builds, and a four-SDK-client join/replication/movement smoke test. The dependency audit was clear after the scoped build-tool override. These results cover the foundation. Browser rendering, transient reconnection, real-device latency and load capacity still require direct validation.
 
+## Phase 1 four-player browser playtest
+
+Run the [LAN setup](Development-Guide.md) with diagnostics enabled. Use four browser clients across physical devices and record the commit, browsers, devices, and observed RTT.
+
+1. Join from all four clients. Confirm everyone sees four distinct avatars and that each player can move and jump.
+2. Click the arena to lock the mouse, turn the camera, and verify movement follows the view. Press Escape and confirm the hint updates and keyboard movement remains available.
+3. Hold a movement key and switch tabs or windows. From a second client, verify the first avatar stops and stays still until fresh input.
+4. Reload one tab and briefly interrupt another client's connection. Verify each recovers its original avatar and that neither replays movement from before the interruption.
+5. Disconnect for more than 30 seconds. Verify the avatar disappears and the old seat cannot be recovered. Use Leave playground on a connected client and confirm its avatar disappears immediately.
+6. Repeat the join and leave cycle. Record failures and attach the observed results before marking Phase 1 complete.
+
 ## Functional matrix
 
 | Area | Required scenarios | Acceptance |
