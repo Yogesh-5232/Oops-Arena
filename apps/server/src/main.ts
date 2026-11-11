@@ -1,53 +1,73 @@
 import { Server, Room, type Client } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { schema, t } from '@colyseus/schema';
-import { CAPACITY, GREYBOX_ARENA, availableSpawn, TICK_MS, parseInput, step, type Input } from '@chaos/shared';
+import { CAPACITY, GREYBOX_ARENA, INPUT_BUFFER, availableSpawn, simulateInput, type Input } from '@chaos/shared';
 
-const Avatar = schema({ x: t.number(), y: t.number(), z: t.number(), vy: t.number() });
+// float64 so clients receive exactly what the server simulated; prediction compares against it.
+const Avatar = schema({ x: t.float64(), y: t.float64(), z: t.float64(), vy: t.float64() });
 const State = schema({ players: t.map(Avatar) });
+/** One numbered input per client tick. float64 keeps client and server values bit-identical. */
+const MoveInput = schema({ x: t.float64(), z: t.float64(), jump: t.boolean() });
 
 class Playground extends Room {
   state = new State();
   maxClients = CAPACITY;
-  private commands = new Map<string, { input: Input; received: number }>();
-  private rates = new Map<string, { start: number; count: number }>();
+  /**
+   * Disconnects a client that floods the socket (it counts input packets too).
+   * Normal play sends 30 inputs plus at most one diagnostics request per second;
+   * the headroom absorbs the catch-up burst after a brief network stall.
+   */
+  maxMessagesPerSecond = 150;
+  /**
+   * Each tick consumes exactly one buffered input per player, so sending extra
+   * inputs never buys extra movement; overflow drops the oldest. A tick with no
+   * input (packet gap, unfocused tab, reconnect window) stands still while gravity runs.
+   */
+  inputs = this.defineInput(MoveInput, {
+    bufferMaxSize: INPUT_BUFFER,
+    // No `sanitize` option: it repairs the decoder's held input in place, which
+    // corrupts delta-encoded fields. simulateInput repairs a copy instead.
+    idle: { x: 0, z: 0, jump: false },
+  });
   private slots = new Map<string, number>();
+  /**
+   * Catch-up credit: one per tick a player had no input (a stall or packet gap).
+   * When the late inputs arrive as a burst, each credit lets one extra input run
+   * in a tick, so the backlog drains back instead of adding latency forever.
+   * Inputs simulated never exceed ticks elapsed, so sending faster still gains
+   * nothing; the cap bounds catch-up to a brief double-speed stretch.
+   */
+  private credits = new Map<string, number>();
   onCreate() {
     let tickMs = 0;
-    let inputAgeMs: number | null = null;
+    let inputBacklog = 0;
     if (process.env.PLAYGROUND_TELEMETRY === '1') {
       this.onMessage('diagnostics', () => ({
-        seats: this.state.players.size, connected: this.clients.length, tickMs, inputAgeMs,
+        seats: this.state.players.size, connected: this.clients.length, tickMs, inputBacklog,
       }));
     }
     this.setPatchRate(50);
-    this.onMessage('input', (client, raw: unknown) => {
-      const now = performance.now();
-      let rate = this.rates.get(client.sessionId);
-      if (!rate || now - rate.start >= 1000) {
-        rate = { start: now, count: 0 };
-        this.rates.set(client.sessionId, rate);
-      }
-      if (++rate.count > 60) return;
-      const input = parseInput(raw);
-      if (!input) return;
-      const previous = this.commands.get(client.sessionId);
-      input.jump ||= previous?.input.jump ?? false;
-      this.commands.set(client.sessionId, { input, received: now });
-    });
-    this.onMessage('clear-input', client => this.commands.delete(client.sessionId));
-    this.setFixedTimestep(() => {
-      const now = performance.now();
-      inputAgeMs = null;
+    this.setFixedTimestep(ctx => {
+      const started = performance.now();
+      inputBacklog = 0;
       for (const [id, player] of this.state.players) {
-        const command = this.commands.get(id);
-        if (command) inputAgeMs = Math.max(inputAgeMs ?? 0, now - command.received);
-        const input = command && now - command.received < 250
-          ? command.input : { x: 0, z: 0, jump: false };
-        step(player, input, TICK_MS / 1000);
-        input.jump = false;
+        const inputs = this.inputs.get(id);
+        inputBacklog = Math.max(inputBacklog, inputs.size);
+        const credit = this.credits.get(id) ?? 0;
+        if (inputs.size === 0) {
+          simulateInput(player, IDLE, ctx.dt);
+          this.credits.set(id, Math.min(credit + 1, MAX_CATCH_UP_CREDIT));
+          continue;
+        }
+        simulateInput(player, inputs.next()!, ctx.dt);
+        // Catch up only above a one-input cushion: draining to empty would let
+        // ordinary jitter cause stand-still ticks, which others see as stutter.
+        if (credit > 0 && inputs.size > CATCH_UP_CUSHION) {
+          simulateInput(player, inputs.next()!, ctx.dt);
+          this.credits.set(id, credit - 1);
+        }
       }
-      tickMs = performance.now() - now;
+      tickMs = performance.now() - started;
     }, 30);
   }
   onJoin(client: Client) {
@@ -63,7 +83,7 @@ class Playground extends Room {
     this.state.players.set(client.sessionId, avatar);
   }
   async onDrop(client: Client) {
-    this.commands.delete(client.sessionId);
+    // The SDK discards this client's buffered inputs on drop, so nothing stale replays.
     try { await this.allowReconnection(client, 30); }
     catch { this.remove(client); }
   }
@@ -71,10 +91,14 @@ class Playground extends Room {
   private remove(client: Client) {
     this.slots.delete(client.sessionId);
     this.state.players.delete(client.sessionId);
-    this.commands.delete(client.sessionId);
-    this.rates.delete(client.sessionId);
+    this.credits.delete(client.sessionId);
   }
 }
+const IDLE: Input = { x: 0, z: 0, jump: false };
+/** At most this many owed ticks are remembered: the input buffer's length, about 270 ms. */
+const MAX_CATCH_UP_CREDIT = INPUT_BUFFER;
+/** Inputs left waiting after a catch-up, absorbing ordinary network jitter. */
+const CATCH_UP_CUSHION = 1;
 const server = new Server({ transport: new WebSocketTransport() });
 server.define('playground', Playground);
 await server.listen(Number(process.env.PORT ?? 2568));

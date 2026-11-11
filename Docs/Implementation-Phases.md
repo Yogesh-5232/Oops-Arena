@@ -10,7 +10,7 @@ The phase order follows technical dependencies. Visual polish can progress withi
 |---|---|---|---|
 | 0 | Reproducible foundation | Existing workspace | Complete. Clean install, checks, builds and smoke test passed on GitHub Actions |
 | 1 | Reliable four-player greybox | Phase 0 | Mouse controls, reload recovery and development diagnostics implemented. Physical browser validation pending |
-| 2 | Responsive networked controller | Phase 1 | Planned |
+| 2 | Responsive networked controller | Phase 1 | In progress on `phase-2-feel`. Numbered, acknowledged inputs, local prediction and 100 ms remote interpolation implemented; lag testing next |
 | 3 | Complete private Dash match | Phase 2 | Planned |
 | 4 | Arena lifecycle and Dodge | Phase 3 | Planned |
 | 5 | Public matchmaking and parties | Phase 4 | Planned |

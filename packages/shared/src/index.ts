@@ -5,12 +5,39 @@ export const CAPACITY = GREYBOX_ARENA.spawns.length;
 export const PRESETS = { quick: 120, short: 315, standard: 540, full: 730 } as const;
 export type Input = { x: number; z: number; jump: boolean };
 export type Player = { x: number; y: number; z: number; vy: number };
-export function parseInput(value: unknown): Input | undefined {
-  if (!value || typeof value !== 'object') return;
-  const input = value as Record<string, unknown>;
-  if (typeof input.x !== 'number' || typeof input.z !== 'number' || !Number.isFinite(input.x) || !Number.isFinite(input.z) || typeof input.jump !== 'boolean') return;
-  const length = Math.max(1, Math.hypot(input.x, input.z));
-  return { x: input.x / length, z: input.z / length, jump: input.jump };
+/** Inputs buffered per player before the oldest is dropped (about 270 ms at 30 Hz). */
+export const INPUT_BUFFER = 8;
+/**
+ * Repairs an input in place so it is always legal: nonfinite axes become 0 and
+ * the direction is shortened to at most length 1. Only ever call it on a copy;
+ * see {@link simulateInput}.
+ */
+export function sanitizeInput(input: Input): void {
+  if (!Number.isFinite(input.x)) input.x = 0;
+  if (!Number.isFinite(input.z)) input.z = 0;
+  const length = Math.hypot(input.x, input.z);
+  if (length > 1) {
+    input.x /= length;
+    input.z /= length;
+  }
+  input.jump = input.jump === true;
+}
+const repaired: Input = { x: 0, z: 0, jump: false };
+/**
+ * The one per-input simulation, run by the server and by client prediction:
+ * copy the received command, repair the copy, then step.
+ *
+ * The command is never repaired in place. Inputs are delta-encoded, so fields a
+ * frame leaves out keep their previous value; repairing the received input
+ * would make those kept fields hold repaired values (a released diagonal key
+ * would move at 71% speed) while the client replays the raw ones.
+ */
+export function simulateInput(player: Player, command: Input, dt: number): void {
+  repaired.x = command.x;
+  repaired.z = command.z;
+  repaired.jump = command.jump;
+  sanitizeInput(repaired);
+  step(player, repaired, dt);
 }
 export function step(player: Player, input: Input, dt: number): void {
   const { bounds, standingHeight } = GREYBOX_ARENA;

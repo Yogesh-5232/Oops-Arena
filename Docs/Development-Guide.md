@@ -8,7 +8,7 @@ Use Node 22.19 or newer supported LTS. Run `npm ci`, then `npm run dev`. Open ht
 
 Run `npm run check` for type checking, shared simulation regression tests and production bundles. Run `npm run start -w @chaos/server` after building to start the server bundle.
 
-Run `npm run smoke` after building to verify movement, jumping, spawn reuse, capacity, and disposal across three room lifecycles. It starts and stops its own built server on port 2599. Set `SMOKE_PORT` to use a different port. Port 2568 is the application default because 2567 was already occupied during setup. GitHub Actions runs a clean install, `npm run check`, and `npm run smoke`.
+Run `npm run smoke` after building to verify movement, jumping, input bounds, prediction agreement, remote smoothing, backlog recovery after a stall, spawn reuse, capacity, and disposal across three room lifecycles. It runs through tsx so it can import the shared simulation. It starts and stops its own built server on port 2599. Set `SMOKE_PORT` to use a different port. Port 2568 is the application default because 2567 was already occupied during setup. GitHub Actions runs a clean install, `npm run check`, and `npm run smoke`.
 
 Installation on this machine used `npm install --cache D:/games/unknown/.npm-cache` because the system drive cache ran out of space. The cache is ignored by version control. A patched esbuild override is committed to address the dependency audit finding.
 
@@ -18,4 +18,4 @@ For the four-player playtest, run `npm run dev:lan` on the host and share its lo
 
 Click the arena after joining to enable mouse look. Press Escape to release the mouse. Movement is relative to the camera. Reloading the same tab attempts to recover the seat during the 30-second reconnect window. Use Leave playground to release the seat immediately.
 
-Start the server with `PLAYGROUND_TELEMETRY=1` and open the client with `?diagnostics` to see request RTT, connected and reserved seats, oldest command age, latest simulation step duration and received state updates per second. The smoke test takes roughly 35 seconds because it checks the full reservation window.
+Start the server with `PLAYGROUND_TELEMETRY=1` and open the client with `?diagnostics` to see request RTT, connected and reserved seats, the largest server input backlog, this client's unacknowledged inputs, prediction corrections per second with the worst correction and drift status (matched, jitter or diverging), latest simulation step duration, received state updates per second and patch jitter against the 100 ms remote interpolation buffer. The smoke test takes roughly 35 seconds because it checks the full reservation window.
