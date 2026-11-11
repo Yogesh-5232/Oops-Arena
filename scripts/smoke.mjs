@@ -9,16 +9,36 @@ const STEP_DISTANCE = 6 / 30; // speed 6 units/s at 30 Hz
 /** The client's prediction step, as in apps/client. */
 const predictStep = (ctx, state, command) => simulateInput(state, command, ctx.dt);
 const KEY_COMBOS = [[1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1], [1, 1]];
+/** Remote smoothing as in apps/client: 100 ms interpolation, 3-unit teleport cut. */
+const REMOTE = { mode: 'lerp', snap: 3 };
 /**
  * Drives a predicting client for `frames` 16 ms frames with a scripted pattern
  * (walking key combinations while hopping), then waits for the server to
- * acknowledge everything.
+ * acknowledge everything. Meanwhile `watcher` draws the mover through remote
+ * smoothing; a frame where the drawn position did not move is "frozen".
  */
-async function drivePrediction(room, frames) {
+async function drivePrediction(room, frames, watcher) {
   const input = room.input({ mode: 'reliable' });
   const predict = Predict.get(room);
   const self = room.state.players.get(room.sessionId);
   const me = predict.reconciler(self, { input, step: predictStep, fields: ['x', 'y', 'z', 'vy'], snap: 3 });
+  const watch = Predict.get(watcher, { mode: 'lerp', delay: 100 });
+  watch.attachAll('players', { x: REMOTE, y: REMOTE, z: REMOTE });
+  const seenByWatcher = watcher.state.players.get(room.sessionId);
+  const remote = { frames: 0, smoothFrozen: 0, rawFrozen: 0, last: undefined, lastRaw: undefined };
+  const watchFrame = (frame, now) => {
+    watch.tick(now);
+    const drawn = [watch.value(seenByWatcher, 'x'), watch.value(seenByWatcher, 'z')];
+    const raw = [seenByWatcher.x, seenByWatcher.z];
+    // Skip the first ~0.35 s while the interpolation buffer fills.
+    if (frame >= 20 && frame < frames && remote.last) {
+      remote.frames++;
+      if (Math.hypot(drawn[0] - remote.last[0], drawn[1] - remote.last[1]) < 1e-6) remote.smoothFrozen++;
+      if (Math.hypot(raw[0] - remote.lastRaw[0], raw[1] - remote.lastRaw[1]) < 1e-6) remote.rawFrozen++;
+    }
+    remote.last = drawn;
+    remote.lastRaw = raw;
+  };
   let reconciles = 0, corrections = 0, worst = 0, seen = me.reconcileSeq;
   const observe = () => {
     if (me.reconcileSeq === seen) return;
@@ -32,7 +52,8 @@ async function drivePrediction(room, frames) {
   // server on acknowledged inputs.
   const settleFrames = 60;
   for (let frame = 0; frame < frames + settleFrames; frame++) {
-    const steps = predict.tick(performance.now());
+    const now = performance.now();
+    const steps = predict.tick(now);
     for (let i = 0; i < steps; i++) {
       const seq = input.sentCount + 1;
       // Key-like combinations: straight, unnormalized diagonals and single-key releases.
@@ -43,6 +64,7 @@ async function drivePrediction(room, frames) {
       input.send();
     }
     observe();
+    watchFrame(frame, now);
     await delay(16);
   }
   await until(() => {
@@ -51,8 +73,12 @@ async function drivePrediction(room, frames) {
     return input.lastProcessed === input.sentCount;
   }, 'prediction inputs acknowledged');
   predict.tick(performance.now());
-  const result = { sent: input.sentCount, reconciles, corrections, worst, predicted: { ...me.state }, server: self.toJSON() };
+  const result = {
+    sent: input.sentCount, reconciles, corrections, worst, predicted: { ...me.state }, server: self.toJSON(),
+    remote: { frames: remote.frames, smoothFrozen: remote.smoothFrozen, rawFrozen: remote.rawFrozen },
+  };
   predict.dispose();
+  watch.dispose();
   return result;
 }
 const port = process.env.SMOKE_PORT ?? '2599';
@@ -147,11 +173,16 @@ try {
     assert.ok(flooded > 0 && flooded <= INPUT_BUFFER * STEP_DISTANCE + 1e-9,
       `a 50-input flood moved ${flooded}, more than the ${INPUT_BUFFER}-input buffer allows`);
     if (cycle === 0) {
-      const run = await drivePrediction(peers[2], 120);
+      const run = await drivePrediction(peers[2], 120, observer);
       console.log('prediction:', JSON.stringify(run));
       assert.deepEqual(run.predicted, run.server, 'prediction must settle exactly on the server state');
       // Locally this is 0; the margin tolerates an occasional server tick with no input on a busy CI host.
       assert.ok(run.corrections <= run.reconciles / 4, `${run.corrections} of ${run.reconciles} reconciles corrected`);
+      // Raw 20 Hz updates freeze on roughly two of three 60 Hz frames; smoothing should almost never freeze.
+      const { frames, smoothFrozen, rawFrozen } = run.remote;
+      assert.ok(frames >= 50, `only ${frames} remote frames sampled`);
+      assert.ok(smoothFrozen <= frames * 0.15, `smoothed remote froze on ${smoothFrozen} of ${frames} frames`);
+      assert.ok(smoothFrozen < rawFrozen, `smoothing (${smoothFrozen} frozen) must beat raw updates (${rawFrozen} frozen)`);
     }
 
     const dropped = peers[1];
@@ -200,7 +231,7 @@ try {
     await delay(150);
     await assert.rejects(() => track(client.joinById(oldRoomId)), 'empty room must be disposed');
   }
-  console.log('PASS: numbered movement/jump, idle, malformed and flooded input, prediction agreement, automatic and token reconnect, grace expiry, vacant spawn reuse, 12-seat cap, and room disposal');
+  console.log('PASS: numbered movement/jump, idle, malformed and flooded input, prediction agreement, smooth remote avatars, automatic and token reconnect, grace expiry, vacant spawn reuse, 12-seat cap, and room disposal');
 } finally {
   for (const room of rooms) await room.leave();
   if (server.exitCode === null && server.signalCode === null) {

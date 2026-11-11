@@ -58,6 +58,10 @@ function followCamera(x: number, y: number, z: number) {
   camera.setPosition(x + radius * Math.sin(yaw), y + 17 * Math.sin(pitch), z + radius * Math.cos(yaw));
   camera.lookAt(x, y, z);
 }
+/** How far in the past other players are drawn: two 50 ms server updates of headroom. */
+const REMOTE_DELAY_MS = 100;
+/** A jump bigger than this between updates is a teleport (respawn), drawn as a cut, not a glide. */
+const TELEPORT_DISTANCE = 3;
 /** Prediction runs the exact per-input simulation the server runs. */
 function predictStep(ctx: { dt: number }, state: Player, command: Input) {
   simulateInput(state, command, ctx.dt);
@@ -82,36 +86,45 @@ button.onclick = async () => {
     // Prediction: the local avatar runs the shared step the moment an input is sent;
     // each server update rewinds to the server's answer and replays unacknowledged inputs.
     // Small disagreements fade out over ~50 ms; jumps over 3 units (teleports) cut instantly.
-    const predict = Predict.get(room);
+    // Other players are drawn REMOTE_DELAY_MS in the past, gliding between the two
+    // server updates around that moment instead of jumping 20 times a second.
+    const predict = Predict.get(room, { mode: 'lerp', delay: REMOTE_DELAY_MS });
+    const remoteSmoothing = { mode: 'lerp', snap: TELEPORT_DISTANCE } as const;
+    // The local avatar is in this group too; its reconciler takes over its slot while alive.
+    predict.attachAll('players', { x: remoteSmoothing, y: remoteSmoothing, z: remoteSmoothing });
     let me: Reconciler<Player, Input> | undefined;
     let meSource: Player | undefined;
+    const sources = new Map<string, Player>();
     let patches = 0;
     room.onStateChange(state => {
       patches++;
       const alive = new Set<string>();
       state.players.forEach((player: Player, id: string) => {
         alive.add(id);
+        sources.set(id, player);
         let entity = avatars.get(id);
         if (!entity) {
           entity = box(id, id === room.sessionId ? new pc.Color(1, 0.8, 0.2) : new pc.Color(0.7, 0.35, 0.9), new pc.Vec3(1, 2, 1));
+          entity.setPosition(player.x, player.y, player.z);
           avatars.set(id, entity);
         }
-        if (id !== room.sessionId) {
-          entity.setPosition(player.x, player.y, player.z);
-          return;
-        }
+        if (id !== room.sessionId) return;
         localAvatar = entity;
         // A resync can hand us a fresh instance; predict from whichever is live.
         if (player !== meSource) {
           me?.dispose();
           meSource = player;
           me = predict.reconciler(player, {
-            input, step: predictStep, fields: ['x', 'y', 'z', 'vy'], snap: 3,
+            input, step: predictStep, fields: ['x', 'y', 'z', 'vy'], snap: TELEPORT_DISTANCE,
           });
-          entity.setPosition(player.x, player.y, player.z);
         }
       });
-      for (const [id, entity] of avatars) if (!alive.has(id)) { entity.destroy(); avatars.delete(id); }
+      for (const [id, entity] of avatars) {
+        if (alive.has(id)) continue;
+        entity.destroy();
+        avatars.delete(id);
+        sources.delete(id);
+      }
     });
     let connected = true;
     // Lost focus: forget held keys. Inputs keep flowing as "stand still", so prediction stays in step.
@@ -170,7 +183,7 @@ button.onclick = async () => {
         const stats = await room.request<undefined, {
           seats: number; connected: number; tickMs: number; inputBacklog: number;
         }>('diagnostics', undefined, { timeout: 1000 });
-        diagnostics.textContent = `${Math.round(performance.now() - started)} ms RTT · ${stats.connected}/${stats.seats} connected · input backlog ${stats.inputBacklog} · ${input.pendingCount} unacked · ${correctionText} · tick ${stats.tickMs.toFixed(2)} ms · ${patchCount} patches/s`;
+        diagnostics.textContent = `${Math.round(performance.now() - started)} ms RTT · ${stats.connected}/${stats.seats} connected · input backlog ${stats.inputBacklog} · ${input.pendingCount} unacked · ${correctionText} · tick ${stats.tickMs.toFixed(2)} ms · ${patchCount} patches/s · jitter ${room.clock.jitter().toFixed(1)} ms (others drawn ${REMOTE_DELAY_MS} ms behind)`;
       } catch {
         diagnostics.textContent = 'Server diagnostics unavailable.';
       } finally {
@@ -195,17 +208,21 @@ button.onclick = async () => {
         input.send();
         jump = false;
       }
-      if (!me || !meSource || !localAvatar) return;
-      if (me.reconcileSeq !== lastReconcile) {
+      if (me && me.reconcileSeq !== lastReconcile) {
         lastReconcile = me.reconcileSeq;
         if (me.lastCorrectionMag > CORRECTION_FLOOR) corrections++;
         worstCorrection = Math.max(worstCorrection, me.lastCorrectionMag);
       }
-      const x = predict.value(meSource, 'x');
-      const y = predict.value(meSource, 'y');
-      const z = predict.value(meSource, 'z');
-      localAvatar.setPosition(x, y, z);
-      followCamera(x, y, z);
+      // One read for everyone: predicted for the local avatar, interpolated for the rest.
+      for (const [id, entity] of avatars) {
+        const source = sources.get(id);
+        if (!source) continue;
+        const x = predict.value(source, 'x');
+        const y = predict.value(source, 'y');
+        const z = predict.value(source, 'z');
+        entity.setPosition(x, y, z);
+        if (entity === localAvatar) followCamera(x, y, z);
+      }
     };
     app.on('update', frame);
     room.onLeave(() => {
@@ -228,6 +245,7 @@ button.onclick = async () => {
       predict.dispose();
       me = undefined;
       meSource = undefined;
+      sources.clear();
       for (const entity of avatars.values()) entity.destroy();
       avatars.clear();
       status.textContent = 'Disconnected. Join again to continue.';
