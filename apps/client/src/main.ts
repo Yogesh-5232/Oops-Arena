@@ -46,7 +46,10 @@ window.addEventListener('keydown', event => {
 window.addEventListener('keyup', event => keys.delete(event.code));
 const avatars = new Map<string, pc.Entity>();
 const env = (import.meta as ImportMeta & { env: { DEV: boolean; VITE_SERVER_URL?: string } }).env;
-const endpoint = env.VITE_SERVER_URL ?? `http://${env.DEV ? location.hostname : 'localhost'}:2568`;
+// Development builds accept ?server=<url> to route through the lag relay (npm run lag).
+// Production ignores it, so a shared link cannot point players at another server.
+const devServerOverride = env.DEV ? new URLSearchParams(location.search).get('server') : null;
+const endpoint = devServerOverride ?? env.VITE_SERVER_URL ?? `http://${env.DEV ? location.hostname : 'localhost'}:2568`;
 const reconnectKey = `playground-seat:${endpoint}`;
 const diagnosticsEnabled = new URLSearchParams(location.search).has('diagnostics');
 let yaw = 0;
@@ -115,7 +118,13 @@ button.onclick = async () => {
           me?.dispose();
           meSource = player;
           me = predict.reconciler(player, {
-            input, step: predictStep, fields: ['x', 'y', 'z', 'vy'], snap: TELEPORT_DISTANCE,
+            input, step: predictStep, fields: ['x', 'y', 'z', 'vy'],
+            // No snap here: the SDK compares it against every field, including vy,
+            // so a mispredicted jump (vy off by ~6) would pop the avatar instead of
+            // gliding. Respawns will reset the reconciler explicitly.
+            // The SDK only records correction size and drift when a divergence
+            // tolerance is set; Infinity turns the measurement on without warnings.
+            warnOnDivergence: Infinity,
           });
         }
       });
@@ -210,8 +219,11 @@ button.onclick = async () => {
       }
       if (me && me.reconcileSeq !== lastReconcile) {
         lastReconcile = me.reconcileSeq;
-        if (me.lastCorrectionMag > CORRECTION_FLOOR) corrections++;
-        worstCorrection = Math.max(worstCorrection, me.lastCorrectionMag);
+        // Position only: the SDK's lastCorrectionMag also counts vy, a velocity.
+        const { x = 0, y = 0, z = 0 } = me.lastCorrection;
+        const pulled = Math.hypot(x, y, z);
+        if (pulled > CORRECTION_FLOOR) corrections++;
+        worstCorrection = Math.max(worstCorrection, pulled);
       }
       // One read for everyone: predicted for the local avatar, interpolated for the rest.
       for (const [id, entity] of avatars) {

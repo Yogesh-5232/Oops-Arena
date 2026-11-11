@@ -15,6 +15,21 @@ Run the [LAN setup](Development-Guide.md) with diagnostics enabled. Use four bro
 5. Disconnect for more than 30 seconds. Verify the avatar disappears and the old seat cannot be recovered. Use Leave playground on a connected client and confirm its avatar disappears immediately.
 6. Repeat the join and leave cycle. Record failures and attach the observed results before marking Phase 1 complete.
 
+## Phase 2 network measurements
+
+Recorded on 2026-11-11 with `npm run lagtest` (about 10 seconds of scripted walking with diagonals and hops per profile, one mover and one watcher, local relay). Stalls hold a chunk and everything behind it for 250 ms, modeling a TCP retransmit. Corrections count acknowledgements where the predicted position moved by more than 0.001 units. "Watcher frozen" counts 60 Hz frames where the smoothed remote avatar did not move while the mover was walking.
+
+| Profile | Input-to-ack | Corrections | Worst correction | Watcher frozen | Raw updates frozen |
+|---|---:|---:|---:|---:|---:|
+| 40 ms ±5, no stalls | 108 ms | 0 of 218 | 0.000 | 4 of 580 | 389 of 580 |
+| 100 ms ±20, 1% stalls | 191 ms | 3 of 192 | 0.200 | 62 of 580 | 411 of 580 |
+| 180 ms ±40, 2% stalls | 357 ms | 6 of 168 | 0.400 | 86 of 580 | 420 of 580 |
+| 180 ms ±40, no stalls | 276 ms | 2 of 217 | 0.165 | 4 of 580 | 389 of 580 |
+
+Prediction settled exactly on the server state in every profile. Jitter up to ±40 ms is absorbed by the 100 ms interpolation buffer; stalls longer than the buffer cause the remaining freezes, and an uplink stall also makes the mover stand still on the server and then catch up. Input-to-ack includes the server input queue and the wait for the next 20 Hz patch, so it exceeds the relay round trip. These are synthetic measurements on one machine; physical-device and real-network validation is still required.
+
+Correction counts reported before this measurement (local smoke and browser checks during the Phase 2 feel work) were not measured: the SDK records correction sizes only when `warnOnDivergence` is set. With it enabled the local smoke run measures 0 of 90.
+
 ## Functional matrix
 
 | Area | Required scenarios | Acceptance |

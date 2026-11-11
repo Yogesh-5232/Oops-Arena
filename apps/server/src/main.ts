@@ -41,9 +41,12 @@ class Playground extends Room {
   onCreate() {
     let tickMs = 0;
     let inputBacklog = 0;
+    // Room totals: player-ticks run with no input waiting, and extra catch-up inputs run.
+    let idleTicks = 0;
+    let catchUps = 0;
     if (process.env.PLAYGROUND_TELEMETRY === '1') {
       this.onMessage('diagnostics', () => ({
-        seats: this.state.players.size, connected: this.clients.length, tickMs, inputBacklog,
+        seats: this.state.players.size, connected: this.clients.length, tickMs, inputBacklog, idleTicks, catchUps,
       }));
     }
     this.setPatchRate(50);
@@ -57,6 +60,7 @@ class Playground extends Room {
         if (inputs.size === 0) {
           simulateInput(player, IDLE, ctx.dt);
           this.credits.set(id, Math.min(credit + 1, MAX_CATCH_UP_CREDIT));
+          idleTicks++;
           continue;
         }
         simulateInput(player, inputs.next()!, ctx.dt);
@@ -65,6 +69,7 @@ class Playground extends Room {
         if (credit > 0 && inputs.size > CATCH_UP_CUSHION) {
           simulateInput(player, inputs.next()!, ctx.dt);
           this.credits.set(id, credit - 1);
+          catchUps++;
         }
       }
       tickMs = performance.now() - started;
