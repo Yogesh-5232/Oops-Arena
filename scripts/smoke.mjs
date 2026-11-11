@@ -9,6 +9,8 @@ const port = process.env.SMOKE_PORT ?? '2599';
 const server = await startBuiltServer(port, { PLAYGROUND_TELEMETRY: '1' });
 const client = new Client(`http://localhost:${port}`);
 const rooms = new Set();
+/** Where a player stands; timers like coyote time differ between a fresh and a settled player. */
+const position = player => [player.x, player.y, player.z];
 async function track(promise) {
   const room = await promise;
   rooms.add(room);
@@ -69,6 +71,16 @@ try {
     assert.ok(flooded > 0 && flooded <= floodLimit + 1e-9,
       `a 50-input flood moved ${flooded}, more than ${floodLimit} (buffer plus two ticks of catch-up)`);
     if (cycle === 0) {
+      // Hover cheat: jump, then trickle single inputs with pauses just under the
+      // server's wait limit. A normal jump lands in about 0.7 s; the trickler
+      // must land too instead of hanging in the air.
+      send(0, 0, true);
+      const hoverStart = performance.now();
+      while (performance.now() - hoverStart < 2500) {
+        await delay(250);
+        send(0, 0, false);
+      }
+      assert.equal(player().y, 1, `a trickling client must not hover (still at y ${player().y} after 2.5 s)`);
       const run = await drivePrediction(peers[2], 120, observer, { hitch: true });
       console.log('prediction:', JSON.stringify(run));
       assert.deepEqual(run.predicted, run.server, 'prediction must settle exactly on the server state');
@@ -88,7 +100,7 @@ try {
     const dropped = peers[1];
     const token = dropped.reconnectionToken;
     const sessionId = dropped.sessionId;
-    const spawn = observer.state.players.get(sessionId).toJSON();
+    const spawn = position(observer.state.players.get(sessionId));
     if (cycle === 0) {
       dropped.reconnection.minUptime = 0;
       let reconnected = false;
@@ -111,16 +123,16 @@ try {
       }
     }
     await until(() => observer.state.players.size === 4, 'four seats after recovery or replacement');
-    if (cycle < 2) assert.deepEqual(observer.state.players.get(sessionId).toJSON(), spawn);
+    if (cycle < 2) assert.deepEqual(position(observer.state.players.get(sessionId)), spawn);
 
     // Removing a middle seat used to spawn the replacement on the last seat.
     const departed = peers[0];
-    const oldSpawn = observer.state.players.get(departed.sessionId).toJSON();
+    const oldSpawn = position(observer.state.players.get(departed.sessionId));
     await leave(departed);
     await until(() => observer.state.players.size === 3, 'departure replication');
     const replacement = await track(client.joinById(observer.roomId));
     await until(() => observer.state.players.has(replacement.sessionId), 'replacement replication');
-    assert.deepEqual(observer.state.players.get(replacement.sessionId).toJSON(), oldSpawn);
+    assert.deepEqual(position(observer.state.players.get(replacement.sessionId)), oldSpawn);
     while (rooms.size < 12) await track(client.joinById(observer.roomId));
     await until(() => [...rooms].every(room => room.state.players?.size === 12), 'twelve replicated seats');
     await assert.rejects(() => track(client.joinById(observer.roomId)), '13th seat must be rejected');

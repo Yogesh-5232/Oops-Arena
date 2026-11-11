@@ -28,7 +28,7 @@ For two-team modes, keep team size difference at most one. Cap active cargo cont
 
 ## Controls, scoring and engagement
 
-Target move, jump, dive, contextual grab/interact and emote. Add camera sensitivity and remapping as the UI matures. Favor predictable knockback, short recovery and protected spawns. Race finishers receive a playable cooldown. Elimination is limited to a short closing stretch and never removes a player from the full session.
+Target move, jump, dive (a quick second jump tap in the air), contextual grab/interact and emote. Add camera sensitivity and remapping as the UI matures. Favor predictable knockback, short recovery and protected spawns. Race finishers receive a playable cooldown. Elimination is limited to a short closing stretch and never removes a player from the full session.
 
 Normalize race placement by roster size. A starting candidate is `2 + round(10 * (N - rank) / (N - 1))` for `N >= 4`. Rank DNFs by validated progress and assign average ranks to ties. Compare team scores such as 8/4 with 6/6 draws against actual leaderboard swings before locking balance. Keep extended statistics in the hub and result overlays brief.
 
