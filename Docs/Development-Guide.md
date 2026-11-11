@@ -8,7 +8,7 @@ Use Node 22.19 or newer supported LTS. Run `npm ci`, then `npm run dev`. Open ht
 
 Run `npm run check` for type checking, shared simulation regression tests and production bundles. Run `npm run start -w @chaos/server` after building to start the server bundle.
 
-Run `npm run smoke` after building to verify movement, jumping, input bounds, prediction agreement, remote smoothing, spawn reuse, capacity, and disposal across three room lifecycles. It runs through tsx so it can import the shared simulation. It starts and stops its own built server on port 2599. Set `SMOKE_PORT` to use a different port. Port 2568 is the application default because 2567 was already occupied during setup. GitHub Actions runs a clean install, `npm run check`, and `npm run smoke`.
+Run `npm run smoke` after building to verify movement, jumping, input bounds, prediction agreement, remote smoothing, backlog recovery after a stall, spawn reuse, capacity, and disposal across three room lifecycles. It runs through tsx so it can import the shared simulation. It starts and stops its own built server on port 2599. Set `SMOKE_PORT` to use a different port. Port 2568 is the application default because 2567 was already occupied during setup. GitHub Actions runs a clean install, `npm run check`, and `npm run smoke`.
 
 Installation on this machine used `npm install --cache D:/games/unknown/.npm-cache` because the system drive cache ran out of space. The cache is ignored by version control. A patched esbuild override is committed to address the dependency audit finding.
 

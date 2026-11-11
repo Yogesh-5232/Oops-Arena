@@ -30,6 +30,14 @@ class Playground extends Room {
     idle: { x: 0, z: 0, jump: false },
   });
   private slots = new Map<string, number>();
+  /**
+   * Catch-up credit: one per tick a player had no input (a stall or packet gap).
+   * When the late inputs arrive as a burst, each credit lets one extra input run
+   * in a tick, so the backlog drains back instead of adding latency forever.
+   * Inputs simulated never exceed ticks elapsed, so sending faster still gains
+   * nothing; the cap bounds catch-up to a brief double-speed stretch.
+   */
+  private credits = new Map<string, number>();
   onCreate() {
     let tickMs = 0;
     let inputBacklog = 0;
@@ -45,7 +53,19 @@ class Playground extends Room {
       for (const [id, player] of this.state.players) {
         const inputs = this.inputs.get(id);
         inputBacklog = Math.max(inputBacklog, inputs.size);
-        simulateInput(player, inputs.next() ?? IDLE, ctx.dt);
+        const credit = this.credits.get(id) ?? 0;
+        if (inputs.size === 0) {
+          simulateInput(player, IDLE, ctx.dt);
+          this.credits.set(id, Math.min(credit + 1, MAX_CATCH_UP_CREDIT));
+          continue;
+        }
+        simulateInput(player, inputs.next()!, ctx.dt);
+        // Catch up only above a one-input cushion: draining to empty would let
+        // ordinary jitter cause stand-still ticks, which others see as stutter.
+        if (credit > 0 && inputs.size > CATCH_UP_CUSHION) {
+          simulateInput(player, inputs.next()!, ctx.dt);
+          this.credits.set(id, credit - 1);
+        }
       }
       tickMs = performance.now() - started;
     }, 30);
@@ -71,9 +91,14 @@ class Playground extends Room {
   private remove(client: Client) {
     this.slots.delete(client.sessionId);
     this.state.players.delete(client.sessionId);
+    this.credits.delete(client.sessionId);
   }
 }
 const IDLE: Input = { x: 0, z: 0, jump: false };
+/** At most this many owed ticks are remembered: the input buffer's length, about 270 ms. */
+const MAX_CATCH_UP_CREDIT = INPUT_BUFFER;
+/** Inputs left waiting after a catch-up, absorbing ordinary network jitter. */
+const CATCH_UP_CUSHION = 1;
 const server = new Server({ transport: new WebSocketTransport() });
 server.define('playground', Playground);
 await server.listen(Number(process.env.PORT ?? 2568));

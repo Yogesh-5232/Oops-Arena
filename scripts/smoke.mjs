@@ -50,23 +50,32 @@ async function drivePrediction(room, frames, watcher) {
   // Like the real client, keep sending (standing still) after the pattern ends so
   // the avatar lands inside the predicted stream; the reconciler only checks the
   // server on acknowledged inputs.
-  const settleFrames = 60;
-  for (let frame = 0; frame < frames + settleFrames; frame++) {
-    const now = performance.now();
-    const steps = predict.tick(now);
-    for (let i = 0; i < steps; i++) {
-      const seq = input.sentCount + 1;
-      // Key-like combinations: straight, unnormalized diagonals and single-key releases.
-      const [x, z] = frame < frames ? KEY_COMBOS[Math.floor(seq / 7) % KEY_COMBOS.length] : [0, 0];
-      input.data.x = x;
-      input.data.z = z;
-      input.data.jump = frame < frames && seq % 20 === 0;
-      input.send();
+  let frame = 0;
+  const runFrames = async count => {
+    for (const end = frame + count; frame < end; frame++) {
+      const now = performance.now();
+      const steps = predict.tick(now);
+      for (let i = 0; i < steps; i++) {
+        const seq = input.sentCount + 1;
+        // Key-like combinations: straight, unnormalized diagonals and single-key releases.
+        const [x, z] = frame < frames ? KEY_COMBOS[Math.floor(seq / 7) % KEY_COMBOS.length] : [0, 0];
+        input.data.x = x;
+        input.data.z = z;
+        input.data.jump = frame < frames && seq % 20 === 0;
+        input.send();
+      }
+      observe();
+      watchFrame(frame, now);
+      await delay(16);
     }
-    observe();
-    watchFrame(frame, now);
-    await delay(16);
-  }
+  };
+  await runFrames(frames + 60);
+  // A 400 ms hitch (no frames, no sends), then the catch-up burst: the server's
+  // backlog of this client's inputs must drain back rather than stay inflated.
+  const backlogBefore = input.pendingCount;
+  await delay(400);
+  await runFrames(90);
+  const backlogAfter = input.pendingCount;
   await until(() => {
     predict.tick(performance.now());
     observe();
@@ -76,6 +85,7 @@ async function drivePrediction(room, frames, watcher) {
   const result = {
     sent: input.sentCount, reconciles, corrections, worst, predicted: { ...me.state }, server: self.toJSON(),
     remote: { frames: remote.frames, smoothFrozen: remote.smoothFrozen, rawFrozen: remote.rawFrozen },
+    backlog: { before: backlogBefore, afterHitch: backlogAfter },
   };
   predict.dispose();
   watch.dispose();
@@ -170,8 +180,11 @@ try {
     await until(() => input.lastProcessed === input.sentCount, 'flood acknowledged');
     await delay(100);
     const flooded = player().x - floodStart;
-    assert.ok(flooded > 0 && flooded <= INPUT_BUFFER * STEP_DISTANCE + 1e-9,
-      `a 50-input flood moved ${flooded}, more than the ${INPUT_BUFFER}-input buffer allows`);
+    // The flood can arrive across a tick or two, each running up to two inputs
+    // (one plus catch-up), so allow the buffer plus those; 50 steps would be a failure.
+    const floodLimit = (INPUT_BUFFER + 4) * STEP_DISTANCE;
+    assert.ok(flooded > 0 && flooded <= floodLimit + 1e-9,
+      `a 50-input flood moved ${flooded}, more than ${floodLimit} (buffer plus two ticks of catch-up)`);
     if (cycle === 0) {
       const run = await drivePrediction(peers[2], 120, observer);
       console.log('prediction:', JSON.stringify(run));
@@ -183,6 +196,9 @@ try {
       assert.ok(frames >= 50, `only ${frames} remote frames sampled`);
       assert.ok(smoothFrozen <= frames * 0.15, `smoothed remote froze on ${smoothFrozen} of ${frames} frames`);
       assert.ok(smoothFrozen < rawFrozen, `smoothing (${smoothFrozen} frozen) must beat raw updates (${rawFrozen} frozen)`);
+      // Before catch-up credit, a 400 ms hitch left this permanently about 3 higher.
+      assert.ok(run.backlog.afterHitch <= run.backlog.before + 1,
+        `input backlog stayed at ${run.backlog.afterHitch} after a hitch (was ${run.backlog.before})`);
     }
 
     const dropped = peers[1];
