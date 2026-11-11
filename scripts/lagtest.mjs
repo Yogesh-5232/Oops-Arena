@@ -1,6 +1,7 @@
 // Phase 2 network check: drive a predicting player and a watching player through
 // the lag relay at 40, 100 and 180 ms round trips (with jitter and stalls), and
-// report how often prediction was corrected and how smoothly the watcher saw it.
+// report how often prediction was corrected and how smoothly the watcher saw it,
+// then run the course (pusher, ferry, checkpoint, respawn) at each profile too.
 //
 //   npm run build && npm run lagtest
 //
@@ -35,6 +36,14 @@ try {
       await delay(500); // let the clocks measure the round trip
       const run = await drivePrediction(mover, FRAMES, watcher, { ackTimeout: 15000 });
       assert.deepEqual(run.predicted, run.server, `${profile.name}: prediction must settle exactly on the server state`);
+      // The course (pusher hit, ferry ride, checkpoint, respawn) with a fresh player.
+      const rider = await client.joinById(mover.roomId);
+      await until(() => rider.state.players?.size === 3, 'course player replicated', 10000);
+      await delay(500);
+      const ride = await drivePrediction(rider, 2400, watcher, { route: 'course', ackTimeout: 15000 });
+      await rider.leave();
+      assert.deepEqual(ride.predicted, ride.server, `${profile.name}: course prediction must settle exactly on the server state`);
+      const done = Object.entries(ride.course).filter(([, happened]) => happened).map(([part]) => part);
       results.push({
         profile: `${profile.name} (${profile.rttMs} ms ±${profile.jitterMs}, ${profile.lossPct}% stalls)`,
         // Send-to-acknowledgement time: network round trip plus the server's input
@@ -45,6 +54,9 @@ try {
         othersSeeFrozen: `${run.remote.smoothFrozen} of ${run.remote.frames}`,
         rawFrozen: `${run.remote.rawFrozen} of ${run.remote.frames}`,
         stallsUpDown: `${relay.stats.up.stalls} / ${relay.stats.down.stalls}`,
+        courseCorrections: `${ride.corrections} of ${ride.reconciles}`,
+        courseWorst: ride.worst.toFixed(3),
+        courseDone: done.length === 4 ? 'all' : done.join(', ') || 'none',
       });
     } finally {
       await watcher.leave();

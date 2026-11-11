@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { Predict } from '@colyseus/sdk/predict';
-import { simulateInput } from '@chaos/shared';
+import { MODE, MOVERS, TICK_MS, nextInputTick, simulateInput } from '@chaos/shared';
 
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 export async function until(predicate, description, timeout = 5000) {
@@ -57,15 +57,141 @@ const KEY_COMBOS = [[1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1]
 const REMOTE = { mode: 'lerp', snap: 3 };
 const CORRECTION_FLOOR = 0.001;
 
+/** The client's world tick estimate, as in apps/client. */
+export function estimateTick(room) {
+  const tick = room.state.tick ?? 0;
+  const sentAt = room.clock.lastServerTime();
+  return sentAt > 0 ? tick + (room.clock.serverNow() - sentAt) / TICK_MS : tick;
+}
+
+/** Wander: key combinations (straight, unnormalized diagonals, releases), hops and double-tap dives. */
+function wanderRoute(frames) {
+  return (state, tick, seq, frame) => {
+    if (frame >= frames) return { x: 0, z: 0, jump: false, done: true };
+    const [x, z] = KEY_COMBOS[Math.floor(seq / 7) % KEY_COMBOS.length];
+    return { x, z, jump: seq % 20 === 0 || seq % 45 === 10 || seq % 45 === 12, done: false };
+  };
+}
+
+const [FERRY] = MOVERS;
+const FERRY_LOOP = FERRY.legs.reduce((sum, leg) => sum + leg.ticks, 0);
+/** Unit-ish direction toward a target, slowing on the last step so it stops on it. */
+function toward(state, x, z) {
+  const dx = x - state.x;
+  const dz = z - state.z;
+  const distance = Math.hypot(dx, dz);
+  if (distance < 0.05) return undefined;
+  const scale = Math.min(1, distance / 0.2) / distance;
+  return [dx * scale, dz * scale];
+}
 /**
- * Drives a predicting client for `frames` 16 ms frames with a scripted pattern
- * (walking key combinations while hopping and diving, bumping into whatever
- * arena boxes are in the way), then waits for the server to
- * acknowledge everything. Meanwhile `watcher` draws the mover through remote
- * smoothing; a frame where the drawn position did not move is "frozen".
- * With `hitch`, a 400 ms pause (no frames, no sends) follows the pattern.
+ * Course: stand in the pusher's lane until knocked back, walk to the east pit
+ * edge, wait for the ferry, ride it across, step onto the east checkpoint pad,
+ * then walk off the ledge and respawn on that pad. Steers by the predicted
+ * state, like a player would. Reports which parts happened.
  */
-export async function drivePrediction(room, frames, watcher, { hitch = false, ackTimeout = 5000, onCorrection } = {}) {
+function courseRoute(report) {
+  let phase = 'toLane';
+  let since = 0;
+  let respawnsAtStart;
+  const waypoints = { toLane: [[-4, -10.5]], toEdge: [[13, -6], [14.2, 0]], board: [[16.5, 0]], toPad: [[27, 0]], jumpOff: [[27, 6]] };
+  let waypoint = 0;
+  const follow = state => {
+    const points = waypoints[phase];
+    while (waypoint < points.length) {
+      const direction = toward(state, ...points[waypoint]);
+      if (direction) return direction;
+      waypoint++;
+    }
+    return undefined;
+  };
+  const next = (name, tick) => { phase = name; since = tick; waypoint = 0; };
+  return (state, tick) => {
+    respawnsAtStart ??= state.respawns;
+    const stand = { x: 0, z: 0, jump: false, done: false };
+    switch (phase) {
+      case 'toLane': {
+        const direction = follow(state);
+        if (direction) return { ...stand, x: direction[0], z: direction[1] };
+        next('waitHit', tick);
+        return stand;
+      }
+      case 'waitHit': {
+        if (state.mode === MODE.stunned) report.hit = true;
+        if ((report.hit && state.mode === MODE.normal) || tick - since > 300) {
+          next('toEdge', tick);
+          return stand;
+        }
+        // The returning pusher can shove us west, behind its resting spot, where its
+        // back blocks the lane. Step north out of the lane, walk around, come back in.
+        if (report.hit || state.mode !== MODE.normal || Math.hypot(state.x + 4, state.z + 10.5) < 0.5) return stand;
+        const behind = state.x < -6 && state.z < -8.5;
+        const back = behind ? toward(state, state.x, -7.5) : state.x < -4.5 ? toward(state, -4, -7.5) : toward(state, -4, -10.5);
+        return back ? { ...stand, x: back[0], z: back[1] } : stand;
+      }
+      case 'toEdge': {
+        const direction = follow(state);
+        if (direction) return { ...stand, x: direction[0], z: direction[1] };
+        next('waitFerry', tick);
+        return stand;
+      }
+      case 'waitFerry': {
+        // Board during the first half of the ferry's pause at the near end.
+        const inLoop = ((tick % FERRY_LOOP) + FERRY_LOOP) % FERRY_LOOP;
+        if (inLoop < FERRY.legs[0].ticks - 15) next('board', tick);
+        return stand;
+      }
+      case 'board': {
+        const direction = follow(state);
+        if (direction) return { ...stand, x: direction[0], z: direction[1] };
+        report.boarded = state.ground === 1;
+        next('ride', tick);
+        return stand;
+      }
+      case 'ride': {
+        const inLoop = ((tick % FERRY_LOOP) + FERRY_LOOP) % FERRY_LOOP;
+        const arrived = FERRY.legs[0].ticks + FERRY.legs[1].ticks;
+        if (inLoop >= arrived && inLoop < arrived + FERRY.legs[2].ticks) next('toPad', tick);
+        return stand;
+      }
+      case 'toPad': {
+        const direction = follow(state);
+        if (direction) return { ...stand, x: direction[0], z: direction[1] };
+        report.crossed = state.x > 24 && state.checkpoint === 2;
+        next('jumpOff', tick);
+        return stand;
+      }
+      case 'jumpOff': {
+        if (state.respawns !== respawnsAtStart) {
+          report.respawned = state.checkpoint === 2 && Math.abs(state.x - 27) < 1e-9;
+          next('done', tick);
+          return { ...stand, done: true };
+        }
+        const direction = follow(state) ?? [0, 1];
+        return { ...stand, x: direction[0], z: direction[1] };
+      }
+      default:
+        return { ...stand, done: true };
+    }
+  };
+}
+
+/**
+ * Drives a predicting client with a scripted route for up to `frames` 16 ms
+ * frames, then waits for the server to acknowledge everything. Inputs are
+ * stamped with world ticks exactly as apps/client stamps them.
+ * - route 'wander': key combinations, hops and dives around the spawn, bumping
+ *   into whatever boxes are in the way. Meanwhile `watcher` draws the mover
+ *   through remote smoothing; a frame where it did not move is "frozen".
+ * - route 'course': the pusher, the ferry, a checkpoint and a respawn (see
+ *   courseRoute); `result.course` says which happened.
+ * With `hitch`, a 400 ms pause (no frames, no sends) follows the route.
+ */
+export async function drivePrediction(room, frames, watcher, { route = 'wander', hitch = false, ackTimeout = 5000, onCorrection } = {}) {
+  const course = {};
+  const nextInputs = route === 'course' ? courseRoute(course) : wanderRoute(frames);
+  let sentTick;
+  let routeDone = false;
   const input = room.input({ mode: 'reliable' });
   const predict = Predict.get(room);
   const self = room.state.players.get(room.sessionId);
@@ -85,7 +211,7 @@ export async function drivePrediction(room, frames, watcher, { hitch = false, ac
     watch.tick(now);
     const drawn = [watch.value(seenByWatcher, 'x'), watch.value(seenByWatcher, 'z')];
     const raw = [seenByWatcher.x, seenByWatcher.z];
-    if (frame >= firstMeasuredFrame && frame < frames && remote.last) {
+    if (route === 'wander' && frame >= firstMeasuredFrame && frame < frames && remote.last) {
       remote.frames++;
       if (Math.hypot(drawn[0] - remote.last[0], drawn[1] - remote.last[1]) < 1e-6) remote.smoothFrozen++;
       if (Math.hypot(raw[0] - remote.lastRaw[0], raw[1] - remote.lastRaw[1]) < 1e-6) remote.rawFrozen++;
@@ -114,13 +240,12 @@ export async function drivePrediction(room, frames, watcher, { hitch = false, ac
       const now = performance.now();
       const steps = predict.tick(now);
       for (let i = 0; i < steps; i++) {
-        const seq = input.sentCount + 1;
-        // Key-like combinations: straight, unnormalized diagonals and single-key releases.
-        const [x, z] = frame < frames ? KEY_COMBOS[Math.floor(seq / 7) % KEY_COMBOS.length] : [0, 0];
-        input.data.x = x;
-        input.data.z = z;
-        // Hops every 20 inputs, plus a double tap (jump, then a dive two ticks later) every 45.
-        input.data.jump = frame < frames && (seq % 20 === 0 || seq % 45 === 10 || seq % 45 === 12);
+        sentTick = nextInputTick(sentTick, estimateTick(room));
+        const next = routeDone
+          ? { x: 0, z: 0, jump: false, done: true }
+          : nextInputs(me.state, sentTick, input.sentCount + 1, frame);
+        routeDone ||= next.done;
+        Object.assign(input.data, { x: next.x, z: next.z, jump: next.jump, tick: sentTick });
         input.send();
       }
       observe();
@@ -128,7 +253,9 @@ export async function drivePrediction(room, frames, watcher, { hitch = false, ac
       await delay(16);
     }
   };
-  await runFrames(frames + 60);
+  while (!routeDone && frame < frames) await runFrames(1);
+  routeDone = true;
+  await runFrames(60);
   let backlog;
   if (hitch) {
     // The server's backlog of this client's inputs must drain back after the
@@ -158,6 +285,7 @@ export async function drivePrediction(room, frames, watcher, { hitch = false, ac
     sent: input.sentCount, reconciles, corrections, worst, predicted: { ...me.state }, server: self.toJSON(),
     remote: { frames: remote.frames, smoothFrozen: remote.smoothFrozen, rawFrozen: remote.rawFrozen },
     backlog,
+    course: route === 'course' ? { hit: false, boarded: false, crossed: false, respawned: false, ...course } : undefined,
   };
   predict.dispose();
   watch.dispose();

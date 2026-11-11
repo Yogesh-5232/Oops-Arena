@@ -15,37 +15,41 @@ export type Vec3 = [number, number, number];
  * first box in the way. Sweeping the whole path (rather than testing only the
  * end point) means even a fast fall cannot pass through a thin box.
  *
- * Returns true when a box blocked the move. A contact sets the coordinate
- * exactly to the touching value, so both server and client land on identical
- * numbers instead of accumulating rounding.
+ * Returns the index in `boxes` of the box that blocked the move, or -1. A
+ * contact sets the coordinate exactly to the touching value, so both server and
+ * client land on identical numbers instead of accumulating rounding.
  */
-export function sweepAxis(position: Vec3, axis: 0 | 1 | 2, delta: number, boxes: readonly Box[]): boolean {
-  if (delta === 0) return false;
+export function sweepAxis(position: Vec3, axis: 0 | 1 | 2, delta: number, boxes: readonly Box[]): number {
+  if (delta === 0) return -1;
   const half = HALF_EXTENTS[axis];
   let limit = delta;
   let contact: number | undefined;
-  for (const box of boxes) {
+  let blocker = -1;
+  for (let index = 0; index < boxes.length; index++) {
+    const box = boxes[index]!;
     if (!overlapsOtherAxes(position, axis, box)) continue;
     if (delta > 0) {
       const gap = box.min[axis] - (position[axis] + half);
       if (gap > -EPSILON && gap < limit) {
         limit = Math.max(gap, 0);
         contact = box.min[axis] - half;
+        blocker = index;
       }
     } else {
       const gap = (position[axis] - half) - box.max[axis];
       if (gap > -EPSILON && gap < -limit) {
         limit = -Math.max(gap, 0);
         contact = box.max[axis] + half;
+        blocker = index;
       }
     }
   }
   if (contact === undefined) {
     position[axis] += delta;
-    return false;
+    return -1;
   }
   position[axis] = contact;
-  return true;
+  return blocker;
 }
 
 function overlapsOtherAxes(position: Vec3, axis: number, box: Box): boolean {
