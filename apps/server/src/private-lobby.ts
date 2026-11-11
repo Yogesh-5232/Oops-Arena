@@ -44,10 +44,20 @@ export class PrivateLobby {
   }
 
   lockRoster(requester: string): readonly string[] | undefined {
-    if (this.roster || this.hostId !== requester || !this.seats.get(requester)?.connected) return;
+    if (this.roster || this.hostId !== requester) return;
+    const host = this.seats.get(requester);
+    if (!host?.connected || !host.ready) return;
     const eligible = [...this.seats].filter(([, seat]) => seat.connected && seat.ready);
-    if (eligible.length < MIN_PLAYERS || eligible.length !== this.seats.size) return;
+    if (eligible.length < MIN_PLAYERS) return;
     this.roster = Object.freeze(eligible.map(([id]) => id));
     return this.roster;
+  }
+
+  /** Reopen the lobby after the room completes this match. */
+  finishMatch(roster: readonly string[]): boolean {
+    if (this.roster !== roster) return false;
+    this.roster = undefined;
+    for (const seat of this.seats.values()) seat.ready = false;
+    return true;
   }
 }
