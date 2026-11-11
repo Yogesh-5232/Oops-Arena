@@ -52,4 +52,4 @@ Keep guest state and match results in memory for MVP. Store local cosmetic prefe
 
 ## Explicit exclusions from the foundation
 
-The shared controller sweeps an upright capsule against authored arena and mover boxes. The greybox includes a moving ferry and pusher hazard. Private Dash has room codes, readiness and an authoritative match deadline. Slopes, public parties and operational hardening remain future work.
+The shared controller sweeps an upright capsule against authored arena and mover boxes. The greybox includes a moving ferry and pusher hazard. Private Dash has room codes, readiness and an authoritative match deadline. Private parties reuse the Dash room and start only when all members are connected and ready. Slopes, public matchmaking and operational hardening remain future work.

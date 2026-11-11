@@ -66,6 +66,14 @@ Use the LAN setup and at least four browser clients on separate devices. Record 
 4. Repeat with a late-loading browser, a reload during a race, and the host leaving. Check recovery, host transfer, and the fixed deadline.
 5. Rematch in the same room. Verify a race with too few remaining players displays an interrupted result.
 
+## Phase 5 private party browser playtest
+
+1. Create a party with room for five and invite four friends by code.
+2. Ready four members and verify the host cannot start until the fifth is ready. Drop and reconnect that member before kickoff and verify they keep their seat and must ready up again.
+3. Start Dash and confirm all five enter countdown together. Try the invite code from a separate browser and verify it cannot join during the race.
+4. Finish the race and confirm the same party returns to its lobby. Have the host leave, verify leadership transfers, and start another race once everyone is ready.
+5. Let an invite expire in the lobby. Verify the host can renew it and a new member can use it when there is a free seat.
+
 ## Functional matrix
 
 | Area | Required scenarios | Acceptance |
@@ -75,7 +83,7 @@ Use the LAN setup and at least four browser clients on separate devices. Record 
 | Movement | Floor, wall, corner, jump, platform, hazard, checkpoint, respawn | Authoritative outcomes agree and corrections remain playable |
 | Reconnect | Short outage, reload, grace expiry, intentional leave, process crash | Correct seat recovery or clear interruption; stale input cleared |
 | Match clock | All presets, early finish, DNF, slow load, disconnect, delayed callback | Preset cutoff authoritative; no scored action after cutoff; one finalization |
-| Parties | Concurrent party joins, incomplete reservation, queue cancellation | Whole-party admission and timely capacity release |
+| Private parties | Concurrent joins, ready checks, reconnect, host transfer, invite renewal, rematch | Capacity holds and the whole ready party starts together |
 | Teams | Every roster size 4–12 and teammate loss | Bounded imbalance, useful participation and recoverable cargo |
 | Cleanup | Repeated rounds/rematches, empty rooms, stale codes | No orphan timers/seats and memory stabilizes |
 

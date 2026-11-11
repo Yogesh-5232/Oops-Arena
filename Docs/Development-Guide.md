@@ -27,3 +27,5 @@ Start the server with `PLAYGROUND_TELEMETRY=1` and open the client with `?diagno
 To play Quick Chaos, choose a capacity of 4–12 and select **Create private race**. Friends enter the six-character code and select **Join private race**. When the host and at least three other guests are ready, the host can start. Follow the two marked gaps and cross the finish line. After results, ready up in the same room to race again. Codes expire after 30 minutes by default. Set `PRIVATE_CODE_TTL_MS` on the server to change the invite window.
 
 Run `npm run smoke:private` after building to verify the live private room flow. It uses port 2600 by default and takes just over two minutes. Set `PRIVATE_SMOKE_PORT` to avoid a port conflict.
+
+Choose **Create party** to keep the group together. Friends use **Join by code** and enter the party code. Once at least four members are in the party, the host can start Dash when every member is connected and ready. A dropped member keeps their seat during the reconnect window and must ready up again if they reconnect before kickoff. The party returns to the same lobby after the race. The host can renew an expired invite from that lobby.

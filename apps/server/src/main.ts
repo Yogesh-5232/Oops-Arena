@@ -27,7 +27,7 @@ const Avatar = schema({
 const Guest = schema({ name: t.string(), connected: t.boolean(), ready: t.boolean(), racing: t.boolean(), checkpoints: t.number() });
 const State = schema({
   tick: t.uint32(), players: t.map(Avatar), guests: t.map(Guest), phase: t.string(), hostId: t.string(),
-  capacity: t.number(), code: t.string(), codeExpiresAt: t.float64(), remainingMs: t.number(), standings: t.string(),
+  capacity: t.number(), party: t.boolean(), code: t.string(), codeExpiresAt: t.float64(), remainingMs: t.number(), standings: t.string(),
 });
 /** One numbered input per client tick. float64 keeps client and server values bit-identical. */
 const MoveInput = schema({ x: t.float64(), z: t.float64(), jump: t.boolean(), tick: t.uint32() });
@@ -184,17 +184,21 @@ class PrivateDash extends Playground {
   private codeDeadline = 0;
   private active?: { roster: readonly string[]; clock: QuickMatch<DashStanding[]>; race: DashRace; interrupted: boolean };
 
-  override async onCreate(options: { capacity?: number } = {}) {
-    try { this.lobby = new PrivateLobby(options.capacity ?? CAPACITY); }
+  override async onCreate(options: { capacity?: number; party?: boolean } = {}) {
+    this.state.party = options.party === true;
+    try { this.lobby = new PrivateLobby(options.capacity ?? CAPACITY, this.state.party); }
     catch { throw new ServerError(400, 'Capacity must be a whole number from 4 to 12.'); }
     this.roomId = allocateCode();
     this.state.code = this.roomId;
-    this.codeDeadline = performance.now() + CODE_LIFETIME_MS;
-    this.state.codeExpiresAt = Date.now() + CODE_LIFETIME_MS;
+    this.renewInvite();
     this.state.phase = 'lobby';
     this.state.capacity = this.maxClients = this.lobby.capacity;
     await this.setPrivate();
     super.onCreate();
+    this.onMessage('renew-invite', client => {
+      if (this.state.party && !this.active && this.lobby.hostId === client.sessionId &&
+          performance.now() >= this.codeDeadline) this.renewInvite();
+    });
     this.onMessage('ready', (client, value: unknown) => {
       if (typeof value === 'boolean' && this.lobby.setReady(client.sessionId, value)) {
         this.state.guests.get(client.sessionId)!.ready = value;
@@ -218,6 +222,11 @@ class PrivateDash extends Playground {
         resetToSpawn(player, dashSpawn(player.slot));
       });
     });
+  }
+
+  private renewInvite() {
+    this.codeDeadline = performance.now() + CODE_LIFETIME_MS;
+    this.state.codeExpiresAt = Date.now() + CODE_LIFETIME_MS;
   }
 
   override onAuth() {

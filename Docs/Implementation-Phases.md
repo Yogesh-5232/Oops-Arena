@@ -13,7 +13,7 @@ The phase order follows technical dependencies. Visual polish can progress withi
 | 2 | Responsive networked controller | Phase 1 | Controller, lag measurements, world movement and movers implemented. Real-network playtest next |
 | 3 | Complete private Dash match | Phase 2 | Private Dash flow implemented. Physical browser acceptance pending |
 | 4 | Arena lifecycle and Dodge | Phase 3 | Planned |
-| 5 | Public matchmaking and parties | Phase 4 | Planned |
+| 5 | Private parties | Private Dash | Party flow implemented on the Phase 5 branch. Browser playtest pending |
 | 6 | Four-game MVP and all presets | Phase 5 | Planned |
 | 7 | Presentation and accessibility | Phase 6 | Planned |
 | 8 | Release validation and operations | Phase 7 | Planned |
@@ -105,22 +105,20 @@ The phase order follows technical dependencies. Visual polish can progress withi
 
 **Main risks.** Resource leaks, asset/collider drift and loading stalls consuming the round.
 
-## Phase 5 — Public matchmaking and parties
+## Phase 5 — Private parties
 
-**Objective.** Let strangers and intact friend groups enter the same complete game loop.
+**Objective.** Let friend groups form a private party and play Dash together.
 
-- Launch one public Short Party queue in one region.
-- Add party creation/joining and atomic seat reservations for the whole party.
-- Use a short fill window once four players are ready, then atomically lock admission at countdown.
-- Release expired and failed reservations. Preserve party membership when returning to queue.
-- Separate valid reconnect admission from new arrivals after kickoff.
-- Record queue time, abandonment, readiness failures, reservation expiry and room occupancy.
+- Create a private party with a capacity of 4–12. Invite friends by code and let the host renew an expired invite from the lobby.
+- Let the host start Dash once every party member is connected and ready and the party has at least four members.
+- Lock new admissions at countdown and keep reconnect reservations for existing members.
+- Keep the party roster in the same room after results so members can ready up and race again.
 
-**Deliverable.** Public and private entry paths converging on the same match lifecycle.
+**Deliverable.** A private party that plays and rematches through the existing Dash lifecycle. Public matchmaking is deferred.
 
-**Exit criteria.** Concurrent join attempts never exceed capacity or split a party. Failed joins release capacity. Matches start only with the ready minimum, and in-progress rooms accept only valid reconnects.
+**Exit criteria.** Concurrent joins respect capacity, released seats can be reused, and the entire connected, ready party starts together. Verify invite renewal, reconnect, host transfer and same-party rematch in browsers.
 
-**Main risks.** Sparse population, races in reservation handling and fragmented queues. Add queue variants only when population evidence supports them.
+**Main risks.** Concurrent admissions and disconnected members delaying kickoff during their reconnect window.
 
 ## Phase 6 — Four-game MVP and session presets
 

@@ -2,17 +2,19 @@ import type { DashStanding } from '@chaos/shared';
 
 type Guest = { name: string; ready: boolean; connected: boolean; racing: boolean; checkpoints: number };
 export type PrivateState = {
-  code: string; codeExpiresAt: number; phase: string; hostId: string; capacity: number;
+  code: string; codeExpiresAt: number; phase: string; hostId: string; capacity: number; party: boolean;
   remainingMs: number; standings: string;
   guests: { get(id: string): Guest | undefined; forEach(visit: (guest: Guest, id: string) => void): void };
 };
 
 export const privateEntry = document.querySelector<HTMLFormElement>('#private-entry')!;
 export const createButton = document.querySelector<HTMLButtonElement>('#create-private')!;
+export const createPartyButton = document.querySelector<HTMLButtonElement>('#create-party')!;
 export const joinCode = document.querySelector<HTMLInputElement>('#room-code')!;
 export const capacity = document.querySelector<HTMLInputElement>('#capacity')!;
 const panel = document.querySelector<HTMLElement>('#private-room')!;
 const codeLabel = document.querySelector<HTMLElement>('#room-invite')!;
+const renewButton = document.querySelector<HTMLButtonElement>('#renew-invite')!;
 const phaseLabel = document.querySelector<HTMLElement>('#match-phase')!;
 const guests = document.querySelector<HTMLElement>('#guests')!;
 const readyButton = document.querySelector<HTMLButtonElement>('#ready')!;
@@ -21,17 +23,18 @@ const results = document.querySelector<HTMLElement>('#match-results')!;
 const resultsTitle = document.querySelector<HTMLElement>('#results-title')!;
 const standings = document.querySelector<HTMLElement>('#standings')!;
 
-export function privatePanel(ready: (value: boolean) => void, start: () => void) {
+export function privatePanel(ready: (value: boolean) => void, start: () => void, renew: () => void) {
   let lastGuests = '';
   let lastStandings = '';
   let lastPhase = '';
   let canAct = true;
   panel.hidden = false;
   startButton.onclick = start;
+  renewButton.onclick = renew;
   return {
     setConnected(connected: boolean) {
       canAct = connected;
-      if (!connected) readyButton.disabled = startButton.disabled = true;
+      if (!connected) readyButton.disabled = startButton.disabled = renewButton.disabled = true;
     },
     render(state: PrivateState, sessionId: string) {
       if (!state.code) return;
@@ -42,8 +45,11 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void)
         document.exitPointerLock();
       }
       lastPhase = state.phase;
-      codeLabel.textContent = Date.now() >= state.codeExpiresAt
-        ? `Room ${state.code} · invite expired` : `Room code: ${state.code}`;
+      const inviteExpired = Date.now() >= state.codeExpiresAt;
+      const host = sessionId === state.hostId;
+      codeLabel.textContent = `${state.party ? 'Party' : 'Room'} code: ${state.code}${inviteExpired ? ' · invite expired' : ''}`;
+      renewButton.hidden = !(state.party && lobby && host && inviteExpired);
+      renewButton.disabled = !canAct || !me?.connected;
       let readyCount = 0;
       const rows: string[] = [];
       state.guests.forEach((guest, id) => {
@@ -61,8 +67,9 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void)
         }));
       }
       guests.hidden = !lobby;
+      const requiredReady = state.party ? Math.max(4, rows.length) : 4;
       phaseLabel.textContent = lobby
-        ? `Plaza · ${rows.length}/${state.capacity} guests · ${readyCount} ready (4 needed)`
+        ? `${state.party ? 'Party' : 'Plaza'} · ${rows.length}/${state.capacity} guests · ${readyCount} ready (${requiredReady} needed)`
         : state.phase === 'countdown' ? `Race starts in ${time}s`
         : state.phase === 'results' ? `Returning to plaza in ${time}s`
         : !me?.racing ? `Waiting for next race · ${time}s left`
@@ -72,8 +79,8 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void)
       readyButton.disabled = !canAct || !me?.connected;
       readyButton.textContent = me?.ready ? 'Cancel ready' : 'Ready';
       readyButton.onclick = () => ready(!me?.ready);
-      startButton.hidden = !lobby || sessionId !== state.hostId;
-      startButton.disabled = !canAct || !me?.ready || readyCount < 4;
+      startButton.hidden = !lobby || !host;
+      startButton.disabled = !canAct || !me?.ready || readyCount < requiredReady;
       results.hidden = !state.standings || !(state.phase === 'results' || lobby);
       if (lastStandings === state.standings) return;
       lastStandings = state.standings;
@@ -91,7 +98,7 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void)
     },
     dispose() {
       panel.hidden = true;
-      readyButton.onclick = startButton.onclick = null;
+      readyButton.onclick = startButton.onclick = renewButton.onclick = null;
     },
   };
 }
