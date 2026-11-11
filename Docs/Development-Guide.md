@@ -18,4 +18,4 @@ For the four-player playtest, run `npm run dev:lan` on the host and share its lo
 
 Click the arena after joining to enable mouse look. Press Escape to release the mouse. Movement is relative to the camera. Reloading the same tab attempts to recover the seat during the 30-second reconnect window. Use Leave playground to release the seat immediately.
 
-Start the server with `PLAYGROUND_TELEMETRY=1` and open the client with `?diagnostics` to see request RTT, connected and reserved seats, oldest command age, latest simulation step duration and received state updates per second. The smoke test takes roughly 35 seconds because it checks the full reservation window.
+Start the server with `PLAYGROUND_TELEMETRY=1` and open the client with `?diagnostics` to see request RTT, connected and reserved seats, the largest server input backlog, this client's unacknowledged inputs, latest simulation step duration and received state updates per second. The smoke test takes roughly 35 seconds because it checks the full reservation window.

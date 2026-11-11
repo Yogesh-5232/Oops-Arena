@@ -3,6 +3,9 @@ import { strict as assert } from 'node:assert';
 import { once } from 'node:events';
 import { Client } from '@colyseus/sdk';
 
+// Mirrors @chaos/shared: speed 6 units/s at 30 Hz, and the per-player input buffer.
+const STEP_DISTANCE = 6 / 30;
+const INPUT_BUFFER = 8;
 const port = process.env.SMOKE_PORT ?? '2599';
 const server = spawn(process.execPath, ['apps/server/dist/main.js'], {
   stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, PORT: port },
@@ -54,16 +57,33 @@ try {
     for (let i = 0; i < 3; i++) peers.push(await track(client.joinById(observer.roomId)));
     await until(() => [...rooms].every(room => room.state.players?.size === 4), 'four replicated seats');
     const player = () => observer.state.players.get(observer.sessionId);
+    const input = observer.input({ mode: 'reliable' });
+    const send = (x, z, jump) => {
+      Object.assign(input.data, { x, z, jump });
+      return input.send();
+    };
     const before = player().x;
-    observer.send('input', { x: 1, z: 0, jump: true });
+    send(1, 0, true);
+    send(0, 0, false);
     await until(() => player().x > before && player().y > 1, 'movement and jump');
-    await delay(400);
+    await until(() => input.lastProcessed === input.sentCount, 'server acknowledges every numbered input');
+    await until(() => player().y === 1, 'landing');
     const stopped = player().x;
+    assert.ok(Math.abs(stopped - before - STEP_DISTANCE) < 1e-9, `one input moves exactly one step (moved ${stopped - before})`);
     await delay(150);
-    assert.equal(player().x, stopped, 'stale input must stop moving');
-    observer.send('input', { x: 'invalid', z: 0, jump: false });
+    assert.equal(player().x, stopped, 'no input must stand still');
+    send(NaN, Infinity, false);
+    send(0, 0, false);
+    await until(() => input.lastProcessed === input.sentCount, 'malformed input acknowledged');
     await delay(100);
     assert.equal(player().x, stopped, 'malformed input must not move player');
+    for (let i = 0; i < 50; i++) send(1, 0, false);
+    send(0, 0, false);
+    await until(() => input.lastProcessed === input.sentCount, 'flood acknowledged');
+    await delay(100);
+    const flooded = player().x - stopped;
+    assert.ok(flooded > 0 && flooded <= INPUT_BUFFER * STEP_DISTANCE + 1e-9,
+      `a 50-input flood moved ${flooded}, more than the ${INPUT_BUFFER}-input buffer allows`);
 
     const dropped = peers[1];
     const token = dropped.reconnectionToken;
@@ -111,7 +131,7 @@ try {
     await delay(150);
     await assert.rejects(() => track(client.joinById(oldRoomId)), 'empty room must be disposed');
   }
-  console.log('PASS: movement/jump, stale/malformed input, automatic and token reconnect, grace expiry, vacant spawn reuse, 12-seat cap, and room disposal');
+  console.log('PASS: numbered movement/jump, idle, malformed and flooded input, automatic and token reconnect, grace expiry, vacant spawn reuse, 12-seat cap, and room disposal');
 } finally {
   for (const room of rooms) await room.leave();
   if (server.exitCode === null && server.signalCode === null) {

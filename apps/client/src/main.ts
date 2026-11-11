@@ -1,6 +1,6 @@
 import * as pc from 'playcanvas';
 import { Client } from '@colyseus/sdk';
-import { GREYBOX_ARENA, TICK_MS } from '@chaos/shared';
+import { GREYBOX_ARENA, TICK_MS, type Input } from '@chaos/shared';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!;
@@ -89,10 +89,10 @@ button.onclick = async () => {
       for (const [id, entity] of avatars) if (!alive.has(id)) { entity.destroy(); avatars.delete(id); }
     });
     let connected = true;
+    // Lost focus: forget held keys. Inputs stop while unfocused, so the server stands the avatar still.
     const clearInput = () => {
       keys.clear();
       jump = false;
-      if (connected) room.sendUnreliable('clear-input');
     };
     const onVisibility = () => { if (document.hidden) clearInput(); };
     window.addEventListener('blur', clearInput);
@@ -122,6 +122,9 @@ button.onclick = async () => {
     showControls();
     room.onDrop(() => { connected = false; clearInput(); status.textContent = 'Reconnecting…'; });
     room.onReconnect(() => { connected = true; clearInput(); saveToken(); showControls(); });
+    // One numbered input per server tick. The server simulates each exactly once, in order.
+    // WebSocket is ordered and reliable, so the "reliable" channel avoids redundant resends.
+    const input = room.input<Input>({ mode: 'reliable' });
     const diagnostics = diagnosticsEnabled ? document.createElement('p') : undefined;
     if (diagnostics) leaveButton.after(diagnostics);
     let requestPending = false;
@@ -133,26 +136,34 @@ button.onclick = async () => {
       try {
         const started = performance.now();
         const stats = await room.request<undefined, {
-          seats: number; connected: number; tickMs: number; inputAgeMs: number | null;
+          seats: number; connected: number; tickMs: number; inputBacklog: number;
         }>('diagnostics', undefined, { timeout: 1000 });
-        const age = stats.inputAgeMs === null ? 'none' : `${Math.round(stats.inputAgeMs)} ms`;
-        diagnostics.textContent = `${Math.round(performance.now() - started)} ms RTT · ${stats.connected}/${stats.seats} connected · oldest input ${age} · tick ${stats.tickMs.toFixed(2)} ms · ${patchCount} patches/s`;
+        diagnostics.textContent = `${Math.round(performance.now() - started)} ms RTT · ${stats.connected}/${stats.seats} connected · input backlog ${stats.inputBacklog} · ${input.pendingCount} unacked · tick ${stats.tickMs.toFixed(2)} ms · ${patchCount} patches/s`;
       } catch {
         diagnostics.textContent = 'Server diagnostics unavailable.';
       } finally {
         requestPending = false;
       }
     }, 1000);
-    const timer = window.setInterval(() => {
-      if (!connected || document.hidden || !document.hasFocus()) return;
-      const right = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
-      const back = Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp'));
-      room.sendUnreliable('input', {
-        x: right * Math.cos(yaw) + back * Math.sin(yaw),
-        z: back * Math.cos(yaw) - right * Math.sin(yaw), jump
-      });
-      jump = false;
-    }, TICK_MS);
+    // Paced by a clock accumulator rather than setInterval, which drifts late and
+    // would leave the server ticks with no input to consume.
+    let nextSend = performance.now();
+    const sendInputs = () => {
+      const now = performance.now();
+      if (!connected || document.hidden || !document.hasFocus()) { nextSend = now; return; }
+      if (now - nextSend > TICK_MS * 4) nextSend = now; // after a stall, resume without a burst
+      while (now >= nextSend) {
+        const right = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
+        const back = Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp'));
+        input.data.x = right * Math.cos(yaw) + back * Math.sin(yaw);
+        input.data.z = back * Math.cos(yaw) - right * Math.sin(yaw);
+        input.data.jump = jump;
+        input.send();
+        jump = false;
+        nextSend += TICK_MS;
+      }
+    };
+    app.on('update', sendInputs);
     room.onLeave(() => {
       connected = false;
       clearInput();
@@ -169,7 +180,7 @@ button.onclick = async () => {
       diagnostics?.remove();
       window.removeEventListener('blur', clearInput);
       document.removeEventListener('visibilitychange', onVisibility);
-      window.clearInterval(timer);
+      app.off('update', sendInputs);
       for (const entity of avatars.values()) entity.destroy();
       avatars.clear();
       status.textContent = 'Disconnected. Join again to continue.';

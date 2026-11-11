@@ -16,7 +16,7 @@ Split modules when the corresponding feature is implemented. Preserve the modula
 
 ## Simulation and networking
 
-Run 30 fixed simulation steps per second and begin at 20 patches per second. The current implementation consumes the latest validated command and times it out after 250 ms. The planned prediction implementation adds explicit input sequencing, acknowledgements and bounded replay through the SDK. It must continue advancing gravity and hazards when input is absent.
+Run 30 fixed simulation steps per second and begin at 20 patches per second. Clients send one numbered input per tick over the SDK's reliable input channel, paced by a clock accumulator. The server sanitizes each input, consumes exactly one per player per tick from an eight-input buffer (overflow drops the oldest) and echoes the consumed count as the acknowledgement. An empty buffer yields an idle input that stands still. The planned prediction implementation adds bounded client replay of unacknowledged inputs through the SDK. It must continue advancing gravity and hazards when input is absent.
 
 Keep player movement kinematic. Use simple collision shapes and authored collider IDs. The same movement code and tick ordering run on the server and in local prediction. Include velocity, grounding, cooldown and platform attachment in reconciliation state. Reset pending inputs and smoothing on respawn, reconnect and arena changes. Remote rendering begins with a 100 ms interpolation buffer and is tuned from jitter measurements.
 
