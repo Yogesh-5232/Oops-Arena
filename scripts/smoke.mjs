@@ -1,110 +1,14 @@
-import { spawn } from 'node:child_process';
 import { strict as assert } from 'node:assert';
-import { once } from 'node:events';
 import { Client } from '@colyseus/sdk';
-import { Predict } from '@colyseus/sdk/predict';
-import { INPUT_BUFFER, simulateInput } from '@chaos/shared';
+import { INPUT_BUFFER } from '@chaos/shared';
+import { delay, drivePrediction, startBuiltServer, until } from './netcheck.mjs';
 
 const STEP_DISTANCE = 6 / 30; // speed 6 units/s at 30 Hz
-/** The client's prediction step, as in apps/client. */
-const predictStep = (ctx, state, command) => simulateInput(state, command, ctx.dt);
-const KEY_COMBOS = [[1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1], [1, 1]];
-/** Remote smoothing as in apps/client: 100 ms interpolation, 3-unit teleport cut. */
-const REMOTE = { mode: 'lerp', snap: 3 };
-/**
- * Drives a predicting client for `frames` 16 ms frames with a scripted pattern
- * (walking key combinations while hopping), then waits for the server to
- * acknowledge everything. Meanwhile `watcher` draws the mover through remote
- * smoothing; a frame where the drawn position did not move is "frozen".
- */
-async function drivePrediction(room, frames, watcher) {
-  const input = room.input({ mode: 'reliable' });
-  const predict = Predict.get(room);
-  const self = room.state.players.get(room.sessionId);
-  const me = predict.reconciler(self, { input, step: predictStep, fields: ['x', 'y', 'z', 'vy'], snap: 3 });
-  const watch = Predict.get(watcher, { mode: 'lerp', delay: 100 });
-  watch.attachAll('players', { x: REMOTE, y: REMOTE, z: REMOTE });
-  const seenByWatcher = watcher.state.players.get(room.sessionId);
-  const remote = { frames: 0, smoothFrozen: 0, rawFrozen: 0, last: undefined, lastRaw: undefined };
-  const watchFrame = (frame, now) => {
-    watch.tick(now);
-    const drawn = [watch.value(seenByWatcher, 'x'), watch.value(seenByWatcher, 'z')];
-    const raw = [seenByWatcher.x, seenByWatcher.z];
-    // Skip the first ~0.35 s while the interpolation buffer fills.
-    if (frame >= 20 && frame < frames && remote.last) {
-      remote.frames++;
-      if (Math.hypot(drawn[0] - remote.last[0], drawn[1] - remote.last[1]) < 1e-6) remote.smoothFrozen++;
-      if (Math.hypot(raw[0] - remote.lastRaw[0], raw[1] - remote.lastRaw[1]) < 1e-6) remote.rawFrozen++;
-    }
-    remote.last = drawn;
-    remote.lastRaw = raw;
-  };
-  let reconciles = 0, corrections = 0, worst = 0, seen = me.reconcileSeq;
-  const observe = () => {
-    if (me.reconcileSeq === seen) return;
-    seen = me.reconcileSeq;
-    reconciles++;
-    if (me.lastCorrectionMag > 0.001) corrections++;
-    worst = Math.max(worst, me.lastCorrectionMag);
-  };
-  // Like the real client, keep sending (standing still) after the pattern ends so
-  // the avatar lands inside the predicted stream; the reconciler only checks the
-  // server on acknowledged inputs.
-  let frame = 0;
-  const runFrames = async count => {
-    for (const end = frame + count; frame < end; frame++) {
-      const now = performance.now();
-      const steps = predict.tick(now);
-      for (let i = 0; i < steps; i++) {
-        const seq = input.sentCount + 1;
-        // Key-like combinations: straight, unnormalized diagonals and single-key releases.
-        const [x, z] = frame < frames ? KEY_COMBOS[Math.floor(seq / 7) % KEY_COMBOS.length] : [0, 0];
-        input.data.x = x;
-        input.data.z = z;
-        input.data.jump = frame < frames && seq % 20 === 0;
-        input.send();
-      }
-      observe();
-      watchFrame(frame, now);
-      await delay(16);
-    }
-  };
-  await runFrames(frames + 60);
-  // A 400 ms hitch (no frames, no sends), then the catch-up burst: the server's
-  // backlog of this client's inputs must drain back rather than stay inflated.
-  const backlogBefore = input.pendingCount;
-  await delay(400);
-  await runFrames(90);
-  const backlogAfter = input.pendingCount;
-  await until(() => {
-    predict.tick(performance.now());
-    observe();
-    return input.lastProcessed === input.sentCount;
-  }, 'prediction inputs acknowledged');
-  predict.tick(performance.now());
-  const result = {
-    sent: input.sentCount, reconciles, corrections, worst, predicted: { ...me.state }, server: self.toJSON(),
-    remote: { frames: remote.frames, smoothFrozen: remote.smoothFrozen, rawFrozen: remote.rawFrozen },
-    backlog: { before: backlogBefore, afterHitch: backlogAfter },
-  };
-  predict.dispose();
-  watch.dispose();
-  return result;
-}
 const port = process.env.SMOKE_PORT ?? '2599';
-const server = spawn(process.execPath, ['apps/server/dist/main.js'], {
-  stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, PORT: port },
-});
+// Telemetry lets the backlog check read the server's own input queue.
+const server = await startBuiltServer(port, { PLAYGROUND_TELEMETRY: '1' });
 const client = new Client(`http://localhost:${port}`);
 const rooms = new Set();
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function until(predicate, description, timeout = 5000) {
-  const deadline = Date.now() + timeout;
-  while (!predicate()) {
-    if (Date.now() >= deadline) throw Error(`Timed out: ${description}`);
-    await delay(25);
-  }
-}
 async function track(promise) {
   const room = await promise;
   rooms.add(room);
@@ -115,27 +19,6 @@ async function leave(room) {
   rooms.delete(room);
 }
 try {
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => finish(Error('Server startup timed out')), 10000);
-    let output = '';
-    const onData = chunk => {
-      output += chunk.toString();
-      if (output.includes('Playground server listening')) finish();
-    };
-    const onExit = code => finish(Error(`Server exited during startup (${code})`));
-    const onError = error => finish(error);
-    function finish(error) {
-      clearTimeout(timeout);
-      server.stdout.off('data', onData);
-      server.off('exit', onExit);
-      server.off('error', onError);
-      error ? reject(error) : resolve();
-    }
-    server.stdout.on('data', onData);
-    server.once('exit', onExit);
-    server.once('error', onError);
-  });
-  server.stdout.resume();
   for (let cycle = 0; cycle < 3; cycle++) {
     const observer = await track(client.create('playground'));
     const peers = [];
@@ -186,7 +69,7 @@ try {
     assert.ok(flooded > 0 && flooded <= floodLimit + 1e-9,
       `a 50-input flood moved ${flooded}, more than ${floodLimit} (buffer plus two ticks of catch-up)`);
     if (cycle === 0) {
-      const run = await drivePrediction(peers[2], 120, observer);
+      const run = await drivePrediction(peers[2], 120, observer, { hitch: true });
       console.log('prediction:', JSON.stringify(run));
       assert.deepEqual(run.predicted, run.server, 'prediction must settle exactly on the server state');
       // Locally this is 0; the margin tolerates an occasional server tick with no input on a busy CI host.
@@ -196,7 +79,8 @@ try {
       assert.ok(frames >= 50, `only ${frames} remote frames sampled`);
       assert.ok(smoothFrozen <= frames * 0.15, `smoothed remote froze on ${smoothFrozen} of ${frames} frames`);
       assert.ok(smoothFrozen < rawFrozen, `smoothing (${smoothFrozen} frozen) must beat raw updates (${rawFrozen} frozen)`);
-      // Before catch-up credit, a 400 ms hitch left this permanently about 3 higher.
+      // Server-side queue, median of five readings. Before catch-up credit, a
+      // 400 ms hitch left it permanently about 3 higher.
       assert.ok(run.backlog.afterHitch <= run.backlog.before + 1,
         `input backlog stayed at ${run.backlog.afterHitch} after a hitch (was ${run.backlog.before})`);
     }
@@ -250,9 +134,5 @@ try {
   console.log('PASS: numbered movement/jump, idle, malformed and flooded input, prediction agreement, smooth remote avatars, automatic and token reconnect, grace expiry, vacant spawn reuse, 12-seat cap, and room disposal');
 } finally {
   for (const room of rooms) await room.leave();
-  if (server.exitCode === null && server.signalCode === null) {
-    const exited = once(server, 'exit');
-    server.kill();
-    await exited;
-  }
+  await server.stop();
 }
