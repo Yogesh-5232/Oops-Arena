@@ -59,19 +59,21 @@ const CORRECTION_FLOOR = 0.001;
 
 /**
  * Drives a predicting client for `frames` 16 ms frames with a scripted pattern
- * (walking key combinations while hopping), then waits for the server to
+ * (walking key combinations while hopping and diving, bumping into whatever
+ * arena boxes are in the way), then waits for the server to
  * acknowledge everything. Meanwhile `watcher` draws the mover through remote
  * smoothing; a frame where the drawn position did not move is "frozen".
  * With `hitch`, a 400 ms pause (no frames, no sends) follows the pattern.
  */
-export async function drivePrediction(room, frames, watcher, { hitch = false, ackTimeout = 5000 } = {}) {
+export async function drivePrediction(room, frames, watcher, { hitch = false, ackTimeout = 5000, onCorrection } = {}) {
   const input = room.input({ mode: 'reliable' });
   const predict = Predict.get(room);
   const self = room.state.players.get(room.sessionId);
   // warnOnDivergence: Infinity makes the SDK record correction sizes (it skips
   // that bookkeeping otherwise) without ever printing warnings.
   const me = predict.reconciler(self, {
-    input, step: predictStep, fields: ['x', 'y', 'z', 'vy'], warnOnDivergence: Infinity,
+    // No `fields`: mirror every scalar on the avatar schema, as apps/client does.
+    input, step: predictStep, warnOnDivergence: Infinity,
   });
   const watch = Predict.get(watcher, { mode: 'lerp', delay: 100 });
   watch.attachAll('players', { x: REMOTE, y: REMOTE, z: REMOTE });
@@ -101,6 +103,7 @@ export async function drivePrediction(room, frames, watcher, { hitch = false, ac
     const pulled = Math.hypot(x, y, z);
     if (pulled > CORRECTION_FLOOR) corrections++;
     worst = Math.max(worst, pulled);
+    if (pulled > CORRECTION_FLOOR) onCorrection?.({ pulled, predicted: { ...me.state }, server: self.toJSON() });
   };
   // Like the real client, keep sending (standing still) after the pattern ends so
   // the avatar lands inside the predicted stream; the reconciler only checks the
@@ -116,7 +119,8 @@ export async function drivePrediction(room, frames, watcher, { hitch = false, ac
         const [x, z] = frame < frames ? KEY_COMBOS[Math.floor(seq / 7) % KEY_COMBOS.length] : [0, 0];
         input.data.x = x;
         input.data.z = z;
-        input.data.jump = frame < frames && seq % 20 === 0;
+        // Hops every 20 inputs, plus a double tap (jump, then a dive two ticks later) every 45.
+        input.data.jump = frame < frames && (seq % 20 === 0 || seq % 45 === 10 || seq % 45 === 12);
         input.send();
       }
       observe();

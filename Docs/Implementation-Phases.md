@@ -10,7 +10,7 @@ The phase order follows technical dependencies. Visual polish can progress withi
 |---|---|---|---|
 | 0 | Reproducible foundation | Existing workspace | Complete. Clean install, checks, builds and smoke test passed on GitHub Actions |
 | 1 | Reliable four-player greybox | Phase 0 | Mouse controls, reload recovery and development diagnostics implemented. Physical browser validation pending |
-| 2 | Responsive networked controller | Phase 1 | In progress on `phase-2-feel`. Feel slice done: numbered inputs, local prediction, 100 ms remote interpolation and a lag relay with measurements at 40/100/180 ms. Collision, jump buffering, dive, platform, hazard and respawn next |
+| 2 | Responsive networked controller | Phase 1 | In progress. Feel slice done (numbered inputs, local prediction, 100 ms remote interpolation, lag relay with measurements). World slice on `phase-2-world`: box collision, jump buffering, coyote time, dive and recovery, fall-off reset. Moving platform, hazard and checkpoint respawn next |
 | 3 | Complete private Dash match | Phase 2 | Planned |
 | 4 | Arena lifecycle and Dodge | Phase 3 | Planned |
 | 5 | Public matchmaking and parties | Phase 4 | Planned |

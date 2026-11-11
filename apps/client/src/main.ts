@@ -1,7 +1,7 @@
 import * as pc from 'playcanvas';
 import { Client } from '@colyseus/sdk';
 import { Predict, classifyDrift, type Reconciler } from '@colyseus/sdk/predict';
-import { GREYBOX_ARENA, simulateInput, type Input, type Player } from '@chaos/shared';
+import { GREYBOX_ARENA, MODE, simulateInput, type Input, type Player } from '@chaos/shared';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!;
@@ -21,19 +21,44 @@ camera.addComponent('camera', { clearColor: new pc.Color(0.32, 0.62, 0.8) });
 camera.setPosition(0, 14, 18);
 camera.lookAt(0, 0, 0);
 app.root.addChild(camera);
-function box(name: string, color: pc.Color, scale: pc.Vec3) {
+function box(name: string, color: pc.Color, scale: pc.Vec3, parent: pc.Entity = app.root) {
   const entity = new pc.Entity(name);
   const material = new pc.StandardMaterial();
   material.diffuse = color;
   material.update();
   entity.addComponent('render', { type: 'box', material });
   entity.setLocalScale(scale);
-  app.root.addChild(entity);
+  parent.addChild(entity);
   return entity;
 }
-const arenaFloor = GREYBOX_ARENA.floor;
-const floor = box(GREYBOX_ARENA.id, new pc.Color(0.4, 0.7, 0.45), new pc.Vec3(arenaFloor.width, arenaFloor.thickness, arenaFloor.depth));
-floor.setPosition(0, -arenaFloor.thickness / 2, 0);
+/** A 1 x 2 x 1 body with a small "nose" on its front face so facing is visible. */
+function avatar(id: string, color: pc.Color) {
+  const root = new pc.Entity(id);
+  app.root.addChild(root);
+  box(`${id}-body`, color, new pc.Vec3(1, 2, 1), root);
+  box(`${id}-nose`, new pc.Color(0.15, 0.15, 0.2), new pc.Vec3(0.4, 0.4, 0.4), root).setLocalPosition(0, 0.5, 0.6);
+  return root;
+}
+const facing = new pc.Quat();
+const tilt = new pc.Quat();
+/** Turns an avatar toward its facing direction and tips it forward while diving (display only). */
+function poseAvatar(entity: pc.Entity, state: Pick<Player, 'faceX' | 'faceZ' | 'mode'>) {
+  facing.setFromEulerAngles(0, Math.atan2(state.faceX, state.faceZ) * pc.math.RAD_TO_DEG, 0);
+  tilt.setFromEulerAngles(state.mode === MODE.diving ? 60 : 0, 0, 0);
+  entity.setRotation(facing.mul(tilt));
+}
+// The arena is drawn from the same box list the simulation collides with.
+const BOX_COLORS = {
+  floor: new pc.Color(0.4, 0.7, 0.45),
+  platform: new pc.Color(0.85, 0.6, 0.35),
+  wall: new pc.Color(0.55, 0.55, 0.65),
+} as const;
+for (const piece of GREYBOX_ARENA.boxes) {
+  const [x0, y0, z0] = piece.min;
+  const [x1, y1, z1] = piece.max;
+  box(piece.id, BOX_COLORS[piece.kind], new pc.Vec3(x1 - x0, y1 - y0, z1 - z0))
+    .setPosition((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+}
 app.start();
 const keys = new Set<string>();
 let jump = false;
@@ -41,6 +66,7 @@ window.addEventListener('keydown', event => {
   if (!localAvatar || event.target instanceof HTMLButtonElement) return;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
   keys.add(event.code);
+  // Every fresh tap is a jump press; a quick second tap in the air dives (see MOVEMENT.diveWindowTicks).
   if (event.code === 'Space' && !event.repeat) jump = true;
 });
 window.addEventListener('keyup', event => keys.delete(event.code));
@@ -107,7 +133,7 @@ button.onclick = async () => {
         sources.set(id, player);
         let entity = avatars.get(id);
         if (!entity) {
-          entity = box(id, id === room.sessionId ? new pc.Color(1, 0.8, 0.2) : new pc.Color(0.7, 0.35, 0.9), new pc.Vec3(1, 2, 1));
+          entity = avatar(id, id === room.sessionId ? new pc.Color(1, 0.8, 0.2) : new pc.Color(0.7, 0.35, 0.9));
           entity.setPosition(player.x, player.y, player.z);
           avatars.set(id, entity);
         }
@@ -118,7 +144,10 @@ button.onclick = async () => {
           me?.dispose();
           meSource = player;
           me = predict.reconciler(player, {
-            input, step: predictStep, fields: ['x', 'y', 'z', 'vy'],
+            input, step: predictStep,
+            // `fields` is left out on purpose: the SDK then mirrors every scalar on
+            // the avatar schema (velocity, grounded, jump timers, mode, facing), so
+            // replay never starts from a stale value when the step gains state.
             // No snap here: the SDK compares it against every field, including vy,
             // so a mispredicted jump (vy off by ~6) would pop the avatar instead of
             // gliding. Respawns will reset the reconciler explicitly.
@@ -233,6 +262,8 @@ button.onclick = async () => {
         const y = predict.value(source, 'y');
         const z = predict.value(source, 'z');
         entity.setPosition(x, y, z);
+        // Facing and dive tilt: our own from the prediction, others from the latest update.
+        poseAvatar(entity, entity === localAvatar && me ? me.state : source);
         if (entity === localAvatar) followCamera(x, y, z);
       }
     };
