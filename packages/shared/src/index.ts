@@ -9,8 +9,8 @@ export type Player = { x: number; y: number; z: number; vy: number };
 export const INPUT_BUFFER = 8;
 /**
  * Repairs an input in place so it is always legal: nonfinite axes become 0 and
- * the direction is shortened to at most length 1. Client prediction and the
- * server both run inputs through this so they simulate identical values.
+ * the direction is shortened to at most length 1. Only ever call it on a copy;
+ * see {@link simulateInput}.
  */
 export function sanitizeInput(input: Input): void {
   if (!Number.isFinite(input.x)) input.x = 0;
@@ -21,6 +21,23 @@ export function sanitizeInput(input: Input): void {
     input.z /= length;
   }
   input.jump = input.jump === true;
+}
+const repaired: Input = { x: 0, z: 0, jump: false };
+/**
+ * The one per-input simulation, run by the server and by client prediction:
+ * copy the received command, repair the copy, then step.
+ *
+ * The command is never repaired in place. Inputs are delta-encoded, so fields a
+ * frame leaves out keep their previous value; repairing the received input
+ * would make those kept fields hold repaired values (a released diagonal key
+ * would move at 71% speed) while the client replays the raw ones.
+ */
+export function simulateInput(player: Player, command: Input, dt: number): void {
+  repaired.x = command.x;
+  repaired.z = command.z;
+  repaired.jump = command.jump;
+  sanitizeInput(repaired);
+  step(player, repaired, dt);
 }
 export function step(player: Player, input: Input, dt: number): void {
   const { bounds, standingHeight } = GREYBOX_ARENA;

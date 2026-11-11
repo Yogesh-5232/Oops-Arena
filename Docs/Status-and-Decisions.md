@@ -2,7 +2,7 @@
 
 ## Current status
 
-The foundation has npm workspaces, a PlayCanvas scene and follow camera, a Colyseus room, 30 Hz authoritative movement, 20 Hz patches, numbered and acknowledged inputs through the SDK input channel (one consumed per tick, an eight-input buffer, sanitized to finite values of length at most 1, and a standing-still idle tick when none is buffered), float64 avatar state, floor/arena limits, jumping and a 12-seat cap. Server reconnect reservation and client transient reconnect feedback are implemented but need scenario coverage.
+The foundation has npm workspaces, a PlayCanvas scene and follow camera, a Colyseus room, 30 Hz authoritative movement, 20 Hz patches, numbered and acknowledged inputs through the SDK input channel (one consumed per tick, an eight-input buffer, sanitized to finite values of length at most 1, and a standing-still idle tick when none is buffered), float64 avatar state, SDK reconciler prediction of the local avatar with correction telemetry, floor/arena limits, jumping and a 12-seat cap. Server reconnect reservation and client transient reconnect feedback are implemented but need scenario coverage.
 
 The client and server share the greybox floor, movement bounds and spawn definitions. The server tracks occupied slots, including reconnect reservations, and releases them when a player leaves or a reservation expires. On blur or when the page becomes hidden, the client clears local controls and asks the server to discard the current command and buffered jump.
 

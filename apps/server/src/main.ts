@@ -1,7 +1,7 @@
 import { Server, Room, type Client } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { schema, t } from '@colyseus/schema';
-import { CAPACITY, GREYBOX_ARENA, INPUT_BUFFER, availableSpawn, sanitizeInput, step, type Input } from '@chaos/shared';
+import { CAPACITY, GREYBOX_ARENA, INPUT_BUFFER, availableSpawn, simulateInput, type Input } from '@chaos/shared';
 
 // float64 so clients receive exactly what the server simulated; prediction compares against it.
 const Avatar = schema({ x: t.float64(), y: t.float64(), z: t.float64(), vy: t.float64() });
@@ -25,7 +25,8 @@ class Playground extends Room {
    */
   inputs = this.defineInput(MoveInput, {
     bufferMaxSize: INPUT_BUFFER,
-    sanitize: input => sanitizeInput(input as Input),
+    // No `sanitize` option: it repairs the decoder's held input in place, which
+    // corrupts delta-encoded fields. simulateInput repairs a copy instead.
     idle: { x: 0, z: 0, jump: false },
   });
   private slots = new Map<string, number>();
@@ -44,7 +45,7 @@ class Playground extends Room {
       for (const [id, player] of this.state.players) {
         const inputs = this.inputs.get(id);
         inputBacklog = Math.max(inputBacklog, inputs.size);
-        step(player, inputs.next() ?? IDLE, ctx.dt);
+        simulateInput(player, inputs.next() ?? IDLE, ctx.dt);
       }
       tickMs = performance.now() - started;
     }, 30);
