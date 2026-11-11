@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import {
-  GREYBOX_ARENA, MODE, MOVEMENT, PRESETS, sanitizeInput, spawnPlayer, step,
+  GREYBOX_ARENA, MODE, MOVEMENT, PRESETS, overlaps, sanitizeInput, spawnPlayer, step, sweepAxis,
   type Box, type Input, type Player,
 } from './index.js';
 
@@ -18,6 +18,20 @@ function run(player: Player, command: Input, ticks: number, boxes?: readonly Box
   for (let i = 0; i < ticks; i++) step(player, command, DT, boxes);
 }
 const flatFloor: Box = { id: 'f', kind: 'floor', min: [-50, -1, -50], max: [50, 0, 50] };
+
+test('capsule sweeps stop at rounded corners without treating them as square', () => {
+  const box: Box = { id: 'corner', kind: 'wall', min: [0, 0, 0], max: [1, 2, 1] };
+  const beside: [number, number, number] = [-2, 1, -0.4];
+  assert.equal(sweepAxis(beside, 0, 4, [box]), 0);
+  assert.ok(Math.abs(beside[0] - (-0.3)) < 1e-9);
+  assert.equal(overlaps(beside, box), false);
+  assert.equal(overlaps([-0.29, 1, -0.4], box), true);
+
+  const above: [number, number, number] = [-0.3, 5, -0.3];
+  assert.equal(sweepAxis(above, 1, -6, [box]), 0);
+  assert.ok(above[1] > 2.5 && above[1] < 3, 'rounded foot contacts the upper corner');
+  assert.equal(overlaps(above, box), false);
+});
 
 test('repairs nonfinite input and normalizes diagonals', () => {
   const broken = { x: Infinity, z: NaN, jump: 'yes', tick: -3 } as unknown as Input;

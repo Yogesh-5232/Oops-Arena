@@ -190,21 +190,28 @@ async function connect(action: 'playground' | 'create' | 'join') {
     // server updates around that moment instead of jumping 20 times a second.
     const predict = Predict.get(room, { mode: 'lerp', delay: REMOTE_DELAY_MS });
     const remoteSmoothing = { mode: 'lerp', snap: TELEPORT_DISTANCE } as const;
-    // The local avatar is in this group too; its reconciler takes over its slot while alive.
-    predict.attachAll('players', { x: remoteSmoothing, y: remoteSmoothing, z: remoteSmoothing });
+    const remoteFields = { x: remoteSmoothing, y: remoteSmoothing, z: remoteSmoothing };
     let me: Reconciler<Player, Input> | undefined;
     let meSource: Player | undefined;
     const sources = new Map<string, Player>();
+    const remoteRespawns = new Map<string, number>();
+    let showingCourse = false;
     let patches = 0;
     room.onStateChange(state => {
       patches++;
+      const courseVisible = isPrivate && state.phase !== 'lobby';
+      const sceneChanged = showingCourse !== courseVisible;
+      showingCourse = courseVisible;
       if (isPrivate) {
         panel?.render(state, room.sessionId);
-        showCourse(state.phase !== 'lobby');
+        showCourse(courseVisible);
       }
-      const alive = new Set<string>();
+      for (const [id, source] of sources) {
+        if (id === room.sessionId || state.players.get(id) === source) continue;
+        predict.detach(source);
+      }
       state.players.forEach((player: Player, id: string) => {
-        alive.add(id);
+        const previous = sources.get(id);
         sources.set(id, player);
         let entity = avatars.get(id);
         if (!entity) {
@@ -212,7 +219,15 @@ async function connect(action: 'playground' | 'create' | 'join') {
           entity.setPosition(player.x, player.y, player.z);
           avatars.set(id, entity);
         }
-        if (id !== room.sessionId) return;
+        if (id !== room.sessionId) {
+          if (previous !== player || sceneChanged || remoteRespawns.get(id) !== player.respawns) {
+            // Reattaching seeds a fresh interpolation buffer at the new position.
+            if (previous === player) predict.detach(player);
+            predict.attach(player, remoteFields);
+            remoteRespawns.set(id, player.respawns);
+          }
+          return;
+        }
         localAvatar = entity;
         // A resync can hand us a fresh instance; predict from whichever is live.
         if (player !== meSource) {
@@ -233,10 +248,11 @@ async function connect(action: 'playground' | 'create' | 'join') {
         }
       });
       for (const [id, entity] of avatars) {
-        if (alive.has(id)) continue;
+        if (state.players.has(id)) continue;
         entity.destroy();
         avatars.delete(id);
         sources.delete(id);
+        remoteRespawns.delete(id);
       }
     });
     let connected = true;
@@ -294,9 +310,10 @@ async function connect(action: 'playground' | 'create' | 'join') {
       try {
         const started = performance.now();
         const stats = await room.request<undefined, {
-          seats: number; connected: number; tickMs: number; inputBacklog: number;
+          seats: number; connected: number; tickMs: number; inputBacklog: number; inputAgeMs: number | null;
         }>('diagnostics', undefined, { timeout: 1000 });
-        diagnostics.textContent = `${Math.round(performance.now() - started)} ms RTT · ${stats.connected}/${stats.seats} connected · input backlog ${stats.inputBacklog} · ${input.pendingCount} unacked · ${correctionText} · tick ${stats.tickMs.toFixed(2)} ms · ${patchCount} patches/s · jitter ${room.clock.jitter().toFixed(1)} ms (others drawn ${REMOTE_DELAY_MS} ms behind)`;
+        const inputAge = stats.inputAgeMs == null ? '—' : `${Math.round(stats.inputAgeMs)} ms`;
+        diagnostics.textContent = `${Math.round(performance.now() - started)} ms RTT · ${stats.connected}/${stats.seats} connected · input age ${inputAge} · input backlog ${stats.inputBacklog} · ${input.pendingCount} unacked · ${correctionText} · tick ${stats.tickMs.toFixed(2)} ms · ${patchCount} patches/s · jitter ${room.clock.jitter().toFixed(1)} ms (others drawn ${REMOTE_DELAY_MS} ms behind)`;
       } catch {
         diagnostics.textContent = 'Server diagnostics unavailable.';
       } finally {
@@ -389,6 +406,7 @@ async function connect(action: 'playground' | 'create' | 'join') {
       me = undefined;
       meSource = undefined;
       sources.clear();
+      remoteRespawns.clear();
       for (const entity of avatars.values()) entity.destroy();
       avatars.clear();
       status.textContent = isPrivate && code !== 4000

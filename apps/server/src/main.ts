@@ -3,7 +3,7 @@ import { Server, Room, ServerError, matchMaker, type Client } from '@colyseus/co
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { schema, t } from '@colyseus/schema';
 import {
-  CAPACITY, DASH_BOXES, INPUT_BUFFER, availableSpawn, clampInputTick, dashSpawn, resetToSpawn, simulateInput, spawnPlayer,
+  CAPACITY, DASH_BOXES, INPUT_BUFFER, TICK_MS, availableSpawn, clampInputTick, dashSpawn, resetToSpawn, simulateInput, spawnPlayer,
   type DashStanding, type Input, type Player,
 } from '@chaos/shared';
 import { DashRace } from './dash-race.js';
@@ -72,6 +72,7 @@ class Playground extends Room {
    */
   private credits = new Map<string, number>();
   private waitAllowance = new Map<string, number>();
+  private inputAges = process.env.PLAYGROUND_TELEMETRY === '1' ? new Map<string, number>() : undefined;
   onCreate() {
     let tickMs = 0;
     let inputBacklog = 0;
@@ -80,9 +81,10 @@ class Playground extends Room {
     let waitedTicks = 0;
     let idleTicks = 0;
     let catchUps = 0;
-    if (process.env.PLAYGROUND_TELEMETRY === '1') {
-      this.onMessage('diagnostics', () => ({
+    if (this.inputAges) {
+      this.onMessage('diagnostics', client => ({
         seats: this.state.players.size, connected: this.clients.length, tickMs, inputBacklog,
+        inputAgeMs: this.inputAges?.get(client.sessionId) ?? null,
         waitedTicks, idleTicks, catchUps,
       }));
     }
@@ -115,14 +117,18 @@ class Playground extends Room {
           }
           continue;
         }
-        this.move(id, player, inputs.next()!, ctx.dt, started, serverTick);
+        let input = inputs.next()!;
+        this.move(id, player, input, ctx.dt, started, serverTick);
         // Catch up only above a one-input cushion: draining to empty would let
         // ordinary jitter cause stand-still ticks, which others see as stutter.
         if (credit > 0 && inputs.size > CATCH_UP_CUSHION) {
-          this.move(id, player, inputs.next()!, ctx.dt, started, serverTick);
+          input = inputs.next()!;
+          this.move(id, player, input, ctx.dt, started, serverTick);
           this.credits.set(id, credit - 1);
           catchUps++;
         }
+        // Measure the received stamp before clamping it to the rewind window.
+        this.inputAges?.set(id, Math.max(0, serverTick - input.tick) * TICK_MS);
       }
       this.afterTick(started);
       tickMs = performance.now() - started;
@@ -143,12 +149,14 @@ class Playground extends Room {
     this.state.players.set(client.sessionId, avatar);
   }
   async onDrop(client: Client) {
+    this.inputAges?.delete(client.sessionId);
     // The SDK discards this client's buffered inputs on drop, so nothing stale replays.
     try { await this.allowReconnection(client, 30); }
     catch { this.remove(client); }
   }
   onLeave(client: Client) { this.remove(client); }
   protected remove(client: Client) {
+    this.inputAges?.delete(client.sessionId);
     this.slots.delete(client.sessionId);
     this.state.players.delete(client.sessionId);
     this.credits.delete(client.sessionId);

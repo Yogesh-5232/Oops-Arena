@@ -5,7 +5,7 @@ export { GREYBOX_ARENA, availableSpawn, type Box, type Checkpoint } from './aren
 export { HALF_EXTENTS, overlaps, sweepAxis } from './collision.js';
 export { MOVERS, moverBox, moverCenter, moverKnocks, moverWarns, type Mover } from './movers.js';
 export {
-  MODE, MOVEMENT, NO_JUMP, clampInputTick, nextInputTick, resetToSpawn, spawnPlayer, step, type Input, type Player,
+  MODE, MOVEMENT, NO_JUMP, resetToSpawn, spawnPlayer, step, type Input, type Player,
 } from './movement.js';
 export { DASH_BOXES, DASH_GATES, DASH_START_Z, dashSpawn, crossesDashGate, type DashStanding } from './dash.js';
 export const TICK_MS = 1000 / 30;

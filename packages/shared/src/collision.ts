@@ -1,7 +1,9 @@
 import type { Box } from './arena.js';
 
-/** Player body: a 1 x 2 x 1 box around its center. */
+/** Bounds of the upright capsule, measured from its center. */
 export const HALF_EXTENTS = [0.5, 1, 0.5] as const;
+const RADIUS = HALF_EXTENTS[0];
+const HALF_SEGMENT = HALF_EXTENTS[1] - RADIUS;
 /**
  * Faces closer than this count as touching, not overlapping, so a player
  * standing on a floor can slide across it and along walls without snagging.
@@ -21,13 +23,21 @@ export type Vec3 = [number, number, number];
  */
 export function sweepAxis(position: Vec3, axis: 0 | 1 | 2, delta: number, boxes: readonly Box[]): number {
   if (delta === 0) return -1;
-  const half = HALF_EXTENTS[axis];
   let limit = delta;
   let contact: number | undefined;
   let blocker = -1;
   for (let index = 0; index < boxes.length; index++) {
     const box = boxes[index]!;
-    if (!overlapsOtherAxes(position, axis, box)) continue;
+    // Intersect the rounded box (expanded by the capsule) with the line
+    // along this sweep. At a corner the contact is closer than the full radius.
+    let radiusSquared = RADIUS * RADIUS;
+    for (let other = 0; other < 3; other++) {
+      if (other === axis) continue;
+      const gap = segmentGap(position[other]!, box, other);
+      radiusSquared -= gap * gap;
+    }
+    if (radiusSquared <= EPSILON * EPSILON) continue;
+    const half = Math.sqrt(radiusSquared) + (axis === 1 ? HALF_SEGMENT : 0);
     if (delta > 0) {
       const gap = box.min[axis] - (position[axis] + half);
       if (gap > -EPSILON && gap < limit) {
@@ -52,22 +62,15 @@ export function sweepAxis(position: Vec3, axis: 0 | 1 | 2, delta: number, boxes:
   return blocker;
 }
 
-function overlapsOtherAxes(position: Vec3, axis: number, box: Box): boolean {
-  for (let other = 0; other < 3; other++) {
-    if (other === axis) continue;
-    const half = HALF_EXTENTS[other]!;
-    if (position[other]! - half >= box.max[other]! - EPSILON) return false;
-    if (position[other]! + half <= box.min[other]! + EPSILON) return false;
-  }
-  return true;
+function segmentGap(center: number, box: Box, axis: number): number {
+  const half = axis === 1 ? HALF_SEGMENT : 0;
+  return Math.max(box.min[axis]! - (center + half), center - half - box.max[axis]!, 0);
 }
 
-/** True when a player body at `position` overlaps `box` (touching faces do not count). */
+/** True when the capsule penetrates the box. Tangent contact does not count. */
 export function overlaps(position: readonly [number, number, number], box: Box): boolean {
-  for (let axis = 0; axis < 3; axis++) {
-    const half = HALF_EXTENTS[axis]!;
-    if (position[axis]! - half >= box.max[axis]! - EPSILON) return false;
-    if (position[axis]! + half <= box.min[axis]! + EPSILON) return false;
-  }
-  return true;
+  const x = segmentGap(position[0], box, 0);
+  const y = segmentGap(position[1], box, 1);
+  const z = segmentGap(position[2], box, 2);
+  return x * x + y * y + z * z < (RADIUS - EPSILON) ** 2;
 }

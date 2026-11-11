@@ -6,6 +6,8 @@ The previous setup run passed type checking, three shared-input/movement/preset 
 
 ## Phase 1 four-player browser playtest
 
+The project owner reported the four-player browser playtest complete on 2026-11-12.
+
 Run the [LAN setup](Development-Guide.md) with diagnostics enabled. Use four browser clients across physical devices and record the commit, browsers, devices, and observed RTT.
 
 1. Join from all four clients. Confirm everyone sees four distinct avatars and that each player can move and jump.
@@ -49,6 +51,8 @@ With the ferry, pusher and checkpoints (inputs stamped with world ticks), the la
 | 180 ms ±40, no stalls | 0 of 216 | 0 of 263 | 0.000 | all |
 
 After the bot fix, four 40 ms course runs completed every part with 0 corrections and exact final states, and the local smoke course measured 0 of 341. Prediction settled exactly in every run.
+
+After switching the player collider to a capsule, the full lag test completed all four course events and settled exactly on the server state in every profile. Course corrections were 0 of 287 at 40 ms, 2 of 246 at 100 ms (largest 0.200 units), 3 of 232 at 180 ms with stalls (largest 0.400 units), and 0 of 265 at 180 ms without stalls.
 
 Correction counts reported before this measurement (local smoke and browser checks during the Phase 2 feel work) were not measured: the SDK records correction sizes only when `warnOnDivergence` is set. With it enabled the local smoke run measures 0 of 90.
 

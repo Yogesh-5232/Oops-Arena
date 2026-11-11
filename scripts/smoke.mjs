@@ -28,6 +28,9 @@ try {
     await until(() => [...rooms].every(room => room.state.players?.size === 4), 'four replicated seats');
     const player = () => observer.state.players.get(observer.sessionId);
     const input = observer.input({ mode: 'reliable' });
+    const beforeInput = await observer.request('diagnostics', undefined, { timeout: 2000 });
+    assert.equal(beforeInput.inputAgeMs, null, 'input age is empty before the first input');
+    input.data.tick = Math.max(0, observer.state.tick - 3);
     const send = (x, z, jump) => {
       Object.assign(input.data, { x, z, jump });
       return input.send();
@@ -37,6 +40,9 @@ try {
     send(0, 0, false);
     await until(() => player().x > before && player().y > 1, 'movement and jump');
     await until(() => input.lastProcessed === input.sentCount, 'server acknowledges every numbered input');
+    const afterInput = await observer.request('diagnostics', undefined, { timeout: 2000 });
+    assert.ok(Number.isFinite(afterInput.inputAgeMs) && afterInput.inputAgeMs >= 0,
+      'acknowledged input has a nonnegative age in milliseconds');
     await until(() => player().y === 1, 'landing');
     const stopped = player().x;
     assert.ok(Math.abs(stopped - before - STEP_DISTANCE) < 1e-9, `one input moves exactly one step (moved ${stopped - before})`);
