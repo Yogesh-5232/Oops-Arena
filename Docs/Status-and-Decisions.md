@@ -8,6 +8,8 @@ The client and server share the greybox floor, movement bounds and spawn definit
 
 Phase 0 passed a clean install, checks, production builds and the SDK smoke test on [GitHub Actions](https://github.com/Yogesh-5232/Oops-Arena/actions/runs/43052905122). The smoke test covers four-client movement and jumping, automatic and token-based recovery of the original seat, reservation expiry, vacant spawn reuse, the 12-seat limit and empty room disposal. Browser mouse look, per-tab reload recovery, and opt-in diagnostics are implemented. The four-player browser playtest is the remaining Phase 1 gate. The current preset constants do not enforce match deadlines.
 
+The two-player browser playtest confirmed remote join through ngrok. The four-player browser gate remains open. Phase 3 is proceeding on a separate branch while Phase 2 movement work proceeds in parallel. The new server modules cover private lobby capacity, host transfer, roster locking and the fixed Quick Chaos timeline. The first lobby rule requires every occupied seat to be connected and ready before starting, with a minimum of four. Room integration, code lookup, Dash and the browser lobby remain to be implemented.
+
 ## Decisions to validate
 
 | Decision | Options and trade-off | Preferred next step | Gate |
