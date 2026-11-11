@@ -11,7 +11,7 @@ The phase order follows technical dependencies. Visual polish can progress withi
 | 0 | Reproducible foundation | Existing workspace | Complete. Clean install, checks, builds and smoke test passed on GitHub Actions |
 | 1 | Reliable four-player greybox | Phase 0 | Mouse controls, reload recovery and development diagnostics implemented. Physical browser validation pending |
 | 2 | Responsive networked controller | Phase 1 | Controller, lag measurements and world movement merged to `main`. Moving platform, hazard and checkpoint respawn remain listed in the plan |
-| 3 | Complete private Dash match | Phase 2 | In progress. Server rules implemented for lobby readiness and Quick match timing |
+| 3 | Complete private Dash match | Phase 2 | Private Dash flow implemented. Physical browser acceptance pending |
 | 4 | Arena lifecycle and Dodge | Phase 3 | Planned |
 | 5 | Public matchmaking and parties | Phase 4 | Planned |
 | 6 | Four-game MVP and all presets | Phase 5 | Planned |

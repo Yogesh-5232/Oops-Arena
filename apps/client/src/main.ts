@@ -1,7 +1,8 @@
 import * as pc from 'playcanvas';
 import { Client } from '@colyseus/sdk';
 import { Predict, classifyDrift, type Reconciler } from '@colyseus/sdk/predict';
-import { GREYBOX_ARENA, MODE, simulateInput, type Input, type Player } from '@chaos/shared';
+import { DASH_BOXES, DASH_GATES, GREYBOX_ARENA, MODE, dashSpawn, simulateInput, type Box, type Input, type Player } from '@chaos/shared';
+import { capacity, createButton, joinCode, privateEntry, privatePanel } from './private-ui.js';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!;
@@ -53,17 +54,32 @@ const BOX_COLORS = {
   platform: new pc.Color(0.85, 0.6, 0.35),
   wall: new pc.Color(0.55, 0.55, 0.65),
 } as const;
-for (const piece of GREYBOX_ARENA.boxes) {
-  const [x0, y0, z0] = piece.min;
-  const [x1, y1, z1] = piece.max;
-  box(piece.id, BOX_COLORS[piece.kind], new pc.Vec3(x1 - x0, y1 - y0, z1 - z0))
-    .setPosition((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+function renderBoxes(pieces: readonly Box[]) {
+  return pieces.map(piece => {
+    const [x0, y0, z0] = piece.min;
+    const [x1, y1, z1] = piece.max;
+    const entity = box(piece.id, BOX_COLORS[piece.kind], new pc.Vec3(x1 - x0, y1 - y0, z1 - z0));
+    entity.setPosition((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    return entity;
+  });
 }
+const playground = renderBoxes(GREYBOX_ARENA.boxes);
+const course = renderBoxes(DASH_BOXES);
+DASH_GATES.forEach((gate, index) => {
+  const marker = box(`dash-gate-${index}`, new pc.Color(1, 0.75, 0.15), new pc.Vec3(gate.halfWidth * 2, 0.05, 0.8));
+  marker.setPosition(gate.x, 0.03, gate.z);
+  course.push(marker);
+});
+function showCourse(visible: boolean) {
+  for (const entity of course) entity.enabled = visible;
+  for (const entity of playground) entity.enabled = !visible;
+}
+showCourse(false);
 app.start();
 const keys = new Set<string>();
 let jump = false;
 window.addEventListener('keydown', event => {
-  if (!localAvatar || event.target instanceof HTMLButtonElement) return;
+  if (!localAvatar || (event.target instanceof HTMLElement && event.target.closest('button,input,select'))) return;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
   keys.add(event.code);
   // Every fresh tap is a jump press; a quick second tap in the air dives (see MOVEMENT.diveWindowTicks).
@@ -77,6 +93,7 @@ const env = (import.meta as ImportMeta & { env: { DEV: boolean; VITE_SERVER_URL?
 const devServerOverride = env.DEV ? new URLSearchParams(location.search).get('server') : null;
 const endpoint = devServerOverride ?? env.VITE_SERVER_URL ?? `http://${env.DEV ? location.hostname : 'localhost'}:2568`;
 const reconnectKey = `playground-seat:${endpoint}`;
+const modeKey = `${reconnectKey}:mode`;
 const diagnosticsEnabled = new URLSearchParams(location.search).has('diagnostics');
 let yaw = 0;
 let pitch = Math.atan2(10, 14);
@@ -91,27 +108,46 @@ function followCamera(x: number, y: number, z: number) {
 const REMOTE_DELAY_MS = 100;
 /** A jump bigger than this between updates is a teleport (respawn), drawn as a cut, not a glide. */
 const TELEPORT_DISTANCE = 3;
-/** Prediction runs the exact per-input simulation the server runs. */
-function predictStep(ctx: { dt: number }, state: Player, command: Input) {
-  simulateInput(state, command, ctx.dt);
-}
-button.onclick = async () => {
+async function connect(action: 'playground' | 'create' | 'join') {
+  if (button.disabled) return;
   button.disabled = true;
+  createButton.disabled = true;
   status.textContent = 'Connecting…';
   try {
     const client = new Client(endpoint);
     const token = sessionStorage.getItem(reconnectKey);
-    const room = token ? await client.reconnect(token) : await client.joinOrCreate('playground');
-    const saveToken = () => sessionStorage.setItem(reconnectKey, room.reconnectionToken);
+    const room = token ? await client.reconnect(token)
+      : action === 'create' ? await client.create('private-dash', { capacity: Number(capacity.value) })
+      : action === 'join' ? await client.joinById(joinCode.value.trim().toUpperCase())
+      : await client.joinOrCreate('playground');
+    const isPrivate = room.name === 'private-dash';
+    const saveToken = () => {
+      sessionStorage.setItem(reconnectKey, room.reconnectionToken);
+      sessionStorage.setItem(modeKey, isPrivate ? 'private' : 'playground');
+    };
     saveToken();
     room.reconnection.minUptime = 0;
     button.hidden = true;
+    privateEntry.hidden = true;
     leaveButton.hidden = false;
+    leaveButton.textContent = isPrivate ? 'Leave room' : 'Leave playground';
     leaveButton.onclick = () => { void room.leave(); };
     leaveButton.blur();
     // One numbered input per server tick. The server simulates each exactly once, in order.
     // WebSocket is ordered and reliable, so the "reliable" channel avoids redundant resends.
     const input = room.input<Input>({ mode: 'reliable' });
+    const panel = isPrivate ? privatePanel(
+      value => room.sendUnreliable('ready', value),
+      () => room.sendUnreliable('start'),
+    ) : undefined;
+    const canMove = () => !isPrivate || room.state.phase === 'lobby' ||
+      ((room.state.phase === 'round' || room.state.phase === 'cooldown') &&
+        room.state.guests?.get(room.sessionId)?.racing);
+    const predictStep = (ctx: { dt: number }, state: Player, command: Input) => {
+      if (!canMove()) return;
+      const racing = isPrivate && room.state.phase !== 'lobby';
+      simulateInput(state, command, ctx.dt, racing ? DASH_BOXES : undefined, racing ? dashSpawn(state.slot) : undefined);
+    };
     // Prediction: the local avatar runs the shared step the moment an input is sent;
     // each server update rewinds to the server's answer and replays unacknowledged inputs.
     // Small disagreements fade out over ~50 ms; jumps over 3 units (teleports) cut instantly.
@@ -127,6 +163,10 @@ button.onclick = async () => {
     let patches = 0;
     room.onStateChange(state => {
       patches++;
+      if (isPrivate) {
+        panel?.render(state, room.sessionId);
+        showCourse(state.phase !== 'lobby');
+      }
       const alive = new Set<string>();
       state.players.forEach((player: Player, id: string) => {
         alive.add(id);
@@ -196,8 +236,8 @@ button.onclick = async () => {
     document.addEventListener('pointerlockchange', showControls);
     document.addEventListener('pointerlockerror', onLockError);
     showControls();
-    room.onDrop(() => { connected = false; clearInput(); status.textContent = 'Reconnecting…'; });
-    room.onReconnect(() => { connected = true; clearInput(); saveToken(); showControls(); });
+    room.onDrop(() => { connected = false; panel?.setConnected(false); clearInput(); status.textContent = 'Reconnecting…'; });
+    room.onReconnect(() => { connected = true; panel?.setConnected(true); clearInput(); saveToken(); showControls(); });
     // Corrections: how often, and how far, the server's answer disagreed with our prediction.
     const CORRECTION_FLOOR = 0.001;
     let lastReconcile = 0;
@@ -268,10 +308,13 @@ button.onclick = async () => {
       }
     };
     app.on('update', frame);
-    room.onLeave(() => {
+    room.onLeave(code => {
       connected = false;
       clearInput();
       sessionStorage.removeItem(reconnectKey);
+      sessionStorage.removeItem(modeKey);
+      panel?.dispose();
+      showCourse(false);
       leaveButton.hidden = true;
       leaveButton.onclick = null;
       canvas.removeEventListener('click', lockCamera);
@@ -291,15 +334,27 @@ button.onclick = async () => {
       sources.clear();
       for (const entity of avatars.values()) entity.destroy();
       avatars.clear();
-      status.textContent = 'Disconnected. Join again to continue.';
+      status.textContent = isPrivate && code !== 4000
+        ? 'Connection lost. Your private session was interrupted.' : 'Ready to play';
       button.hidden = false; button.disabled = false;
+      privateEntry.hidden = false; createButton.disabled = false;
     });
   } catch (error) {
     const expired = sessionStorage.getItem(reconnectKey) !== null;
+    const privateRecovery = sessionStorage.getItem(modeKey) === 'private';
     sessionStorage.removeItem(reconnectKey);
-    status.textContent = expired ? 'Could not recover your seat. Join again to continue.'
+    sessionStorage.removeItem(modeKey);
+    status.textContent = expired ? privateRecovery ? 'Could not recover your private session. Join again to continue.'
+      : 'Could not recover your seat. Join again to continue.'
       : error instanceof Error ? error.message : 'Connection failed';
     button.disabled = false;
+    createButton.disabled = false;
   }
+}
+button.onclick = () => { void connect('playground'); };
+createButton.onclick = () => { if (capacity.reportValidity()) void connect('create'); };
+privateEntry.onsubmit = event => {
+  event.preventDefault();
+  if (joinCode.reportValidity()) void connect('join');
 };
 if (sessionStorage.getItem(reconnectKey)) button.click();

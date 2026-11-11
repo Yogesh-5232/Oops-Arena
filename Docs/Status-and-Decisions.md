@@ -12,7 +12,9 @@ The two-player browser playtest confirmed remote join through ngrok. The four-pl
 
 Phase 3 server rules let a ready host start with at least four connected, ready players. Other guests keep their seats and wait for the next race. The match roster stays fixed, and returning to the lobby preserves seats and host ownership while resetting readiness. The Quick Chaos clock produces the phase and standings together and keeps the original deadline even if a tick skips the results window.
 
-Phase 3 remains in progress. The rules are covered by unit tests, and the live server still exposes only the playground room. Private creation and expiring join codes, browser readiness, the Dash course and authoritative ranking, synchronized results, interruption handling, and the plaza and rematch flow still need live implementation and a four-player acceptance test.
+Phase 3 now has a live private Dash room alongside the playground. The browser supports creating or joining a room by code, readying up, racing through two checkpoints and the finish, and seeing the same results before returning to the plaza. Codes expire after 30 minutes by default. Existing seats can still reconnect and rematch. A race with fewer than two remaining roster seats before scoring locks is marked interrupted. If the server disappears, the client reports that the private session could not be recovered.
+
+The SDK acceptance test uses five clients and runs the real two-minute clock. It covers invite expiry, host-only start, an unready guest waiting, admission lock, token reconnect, ordered checkpoint finishes, shared standings, host transfer, rematch and interruption. A separate SDK check started all 12 racers in one private countdown and verified rejection of a 13th guest. Unit tests cover DNF ranking and late ticks. Phase 3 browser acceptance remains open, including play on separate devices and the slow-loading case.
 
 ## Decisions to validate
 

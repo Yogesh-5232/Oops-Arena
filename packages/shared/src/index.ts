@@ -1,8 +1,9 @@
-import { GREYBOX_ARENA } from './arena.js';
+import { GREYBOX_ARENA, type Box } from './arena.js';
 import { step, type Input, type Player } from './movement.js';
 export { GREYBOX_ARENA, availableSpawn, type Box } from './arena.js';
 export { HALF_EXTENTS, overlaps, sweepAxis } from './collision.js';
 export { MODE, MOVEMENT, NO_JUMP, resetToSpawn, spawnPlayer, step, type Input, type Player } from './movement.js';
+export { DASH_BOXES, DASH_GATES, DASH_START_Z, dashSpawn, crossesDashGate, type DashStanding } from './dash.js';
 export const TICK_MS = 1000 / 30;
 export const CAPACITY = GREYBOX_ARENA.spawns.length;
 export const PRESETS = { quick: 120, short: 315, standard: 540, full: 730 } as const;
@@ -33,10 +34,12 @@ const repaired: Input = { x: 0, z: 0, jump: false };
  * would make those kept fields hold repaired values (a released diagonal key
  * would move at 71% speed) while the client replays the raw ones.
  */
-export function simulateInput(player: Player, command: Input, dt: number): void {
+export function simulateInput(
+  player: Player, command: Input, dt: number, boxes?: readonly Box[], spawn?: Pick<Player, 'x' | 'y' | 'z'>,
+): void {
   repaired.x = command.x;
   repaired.z = command.z;
   repaired.jump = command.jump;
   sanitizeInput(repaired);
-  step(player, repaired, dt);
+  step(player, repaired, dt, boxes, spawn);
 }

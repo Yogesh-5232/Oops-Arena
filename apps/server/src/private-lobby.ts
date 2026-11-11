@@ -18,6 +18,10 @@ export class PrivateLobby {
     return this.seats.keys().next().value;
   }
 
+  get readyCount(): number {
+    return [...this.seats.values()].filter(seat => seat.connected && seat.ready).length;
+  }
+
   admit(id: string): boolean {
     if (this.roster || this.seats.has(id) || this.seats.size >= this.capacity) return false;
     this.seats.set(id, { connected: true, ready: false });
