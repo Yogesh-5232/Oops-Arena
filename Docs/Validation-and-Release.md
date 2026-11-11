@@ -28,6 +28,17 @@ Recorded on 2026-11-11 with `npm run lagtest` (about 10 seconds of scripted walk
 
 Prediction settled exactly on the server state in every profile. Jitter up to ±40 ms is absorbed by the 100 ms interpolation buffer; stalls longer than the buffer cause the remaining freezes, and an uplink stall also makes the mover stand still on the server and then catch up. Input-to-ack includes the server input queue and the wait for the next 20 Hz patch, so it exceeds the relay round trip. These are synthetic measurements on one machine; physical-device and real-network validation is still required.
 
+After adding collision, jump buffering, coyote time and dives (the scripted mover now also dives and bumps into arena boxes), corrections first rose: 7 of 201 (worst 0.720) at 100 ms and 17 of 185 (worst 1.501) at 180 ms with stalls, because the server stepped stalled players with an empty input, which kept dives flying and jump timers counting that the client never predicted. With the server waiting for late inputs (two runs with a consecutive eight-tick limit), corrections fell to 2 and 0 at 100 ms and 2 and 3 at 180 ms with stalls (worst 1.129), and to 0 without stalls. That limit let a client hover by trickling single inputs with pauses just under it (still airborne 3 s after a jump), so waiting is now rationed by a refilling allowance. With the allowance:
+
+| Profile | Corrections | Worst correction | Watcher frozen |
+|---|---:|---:|---:|
+| 40 ms ±5, no stalls | 0 of 220 | 0.000 | 4 of 580 |
+| 100 ms ±20, 1% stalls | 1 of 190 | 0.200 | 69 of 580 |
+| 180 ms ±40, 2% stalls | 2 of 175 | 5.770 | 92 of 580 |
+| 180 ms ±40, no stalls | 0 of 218 | 0.000 | 0 of 580 |
+
+The 5.770 correction at 180 ms was a single outlier, most likely a fall off an edge that happened on one side only after a long stall; three further 180 ms runs measured 5, 3 and 6 corrections with a worst of 0.375. Remaining corrections come from stalls that outlast the allowance. With dive moved to a double tap of jump, a further run measured 0, 0, 3 (worst 0.291) and 0 corrections across the four profiles. The local smoke run measures 0 corrections, and the smoke test checks that a trickling client lands.
+
 Correction counts reported before this measurement (local smoke and browser checks during the Phase 2 feel work) were not measured: the SDK records correction sizes only when `warnOnDivergence` is set. With it enabled the local smoke run measures 0 of 90.
 
 ## Functional matrix

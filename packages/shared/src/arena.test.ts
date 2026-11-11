@@ -1,16 +1,22 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { CAPACITY, GREYBOX_ARENA, availableSpawn } from './index.js';
+import { CAPACITY, GREYBOX_ARENA, HALF_EXTENTS, availableSpawn, overlaps, spawnPlayer, step } from './index.js';
 
-test('every seat has a distinct spawn inside the simulated bounds', () => {
-  const { spawns, bounds } = GREYBOX_ARENA;
+const still = { x: 0, z: 0, jump: false, dive: false };
+
+test('every seat has a distinct spawn standing on the floor, clear of every box', () => {
+  const { spawns, boxes } = GREYBOX_ARENA;
   assert.equal(spawns.length, CAPACITY);
   assert.equal(new Set(spawns.map(p => p.id)).size, CAPACITY);
   assert.equal(new Set(spawns.map(p => `${p.x},${p.z}`)).size, CAPACITY);
-  for (const p of spawns) {
-    assert.ok(p.x >= bounds.minX && p.x <= bounds.maxX);
-    assert.ok(p.z >= bounds.minZ && p.z <= bounds.maxZ);
-    assert.equal(p.y, GREYBOX_ARENA.standingHeight);
+  assert.equal(new Set(boxes.map(b => b.id)).size, boxes.length, 'box ids are unique');
+  for (const spawn of spawns) {
+    for (const box of boxes) assert.ok(!overlaps([spawn.x, spawn.y, spawn.z], box), `${spawn.id} overlaps ${box.id}`);
+    const player = spawnPlayer(spawns.indexOf(spawn));
+    for (let i = 0; i < 10; i++) step(player, still, 1 / 30);
+    assert.deepEqual([player.x, player.y, player.z], [spawn.x, spawn.y, spawn.z], `${spawn.id} stays put`);
+    assert.equal(player.grounded, true);
+    assert.equal(player.y - HALF_EXTENTS[1], 0, 'feet on the main floor top');
   }
 });
 

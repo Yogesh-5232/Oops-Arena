@@ -4,7 +4,7 @@ Read [documentation index](README.md) for scope, architecture, gates and outstan
 
 ## Run
 
-Use Node 22.19 or newer supported LTS. Run `npm ci`, then `npm run dev`. Open http://localhost:5173 in multiple browser windows and select Join playground. The room server listens on port 2568. WASD/arrows move and Space jumps.
+Use Node 22.19 or newer supported LTS. Run `npm ci`, then `npm run dev`. Open http://localhost:5173 in multiple browser windows and select Join playground. The room server listens on port 2568. WASD/arrows move and Space jumps; tap Space again within about a third of a second of jumping to dive. The greybox has a low step and a higher platform (each one jump up), a wall, and an island across a gap; walking off an edge resets you to your spawn.
 
 Run `npm run check` for type checking, shared simulation regression tests and production bundles. Run `npm run start -w @chaos/server` after building to start the server bundle.
 
