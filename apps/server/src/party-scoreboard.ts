@@ -1,0 +1,80 @@
+import {
+  DASH_GATES, LAVA_GATES,
+  type DashStanding, type DodgeStanding, type LavaStanding, type PartyResults, type PartyStanding, type PresetId,
+  type RoundArenaId, type RoundResult, type RoundStanding,
+} from '@chaos/shared';
+
+type Scoring<Row> = { tie(row: Row): string; summary(row: Row): string };
+
+/** Per-arena tie keys (equal keys share placement points) and one-line result summaries. */
+const SCORING: { [Id in RoundArenaId]: Scoring<{ dash: DashStanding; dodge: DodgeStanding; lava: LavaStanding }[Id]> } = {
+  dash: {
+    tie: row => row.finishMs === null ? `dnf:${row.checkpoints}:${row.progress.toFixed(6)}` : `finish:${row.finishMs}`,
+    summary: row => row.finishMs === null
+      ? `Dash DNF ${Math.min(row.checkpoints, DASH_GATES.length - 1)}/${DASH_GATES.length - 1}`
+      : `Dash ${(row.finishMs / 1000).toFixed(1)}s`,
+  },
+  dodge: {
+    tie: row => row.active ? `hits:${row.hits}` : 'inactive',
+    summary: row => row.active ? `Dodge ${row.hits} hits` : 'Dodge DNF',
+  },
+  lava: {
+    tie: row => row.active ? `${row.outMs ?? 'alive'}:${row.gate}:${row.falls}` : 'inactive',
+    summary: row => !row.active ? 'Lava DNF'
+      : row.outMs !== null ? `Lava out at ${Math.floor(row.outMs / 1000)}s`
+      : row.gate === LAVA_GATES ? 'Lava summit' : `Lava gate ${row.gate}/${LAVA_GATES}`,
+  },
+};
+
+/** Placement points from an ordered ranking; tied rows share the average rank's points. */
+function award<T>(rows: readonly T[], tieKey: (row: T) => string): Map<T, number> {
+  const points = new Map<T, number>();
+  let first = 0;
+  while (first < rows.length) {
+    let after = first + 1;
+    const key = tieKey(rows[first]!);
+    while (after < rows.length && tieKey(rows[after]!) === key) after++;
+    const averageRank = (first + 1 + after) / 2;
+    const value = rows.length < 2 ? 12 : 2 + Math.round(10 * (rows.length - averageRank) / (rows.length - 1));
+    for (let index = first; index < after; index++) points.set(rows[index]!, value);
+    first = after;
+  }
+  return points;
+}
+
+/** Server-owned placement points per round and cumulative standings for one party match. */
+export class PartyScoreboard {
+  private readonly rounds: (Map<string, RoundResult> | undefined)[];
+
+  constructor(
+    private readonly names: readonly string[], private readonly preset: PresetId, private readonly arenas: readonly RoundArenaId[],
+  ) {
+    this.rounds = arenas.map(() => undefined);
+  }
+
+  /** Scores round `index` from its ranked rows. Only the first call per round counts. */
+  record(index: number, rows: readonly RoundStanding[]): void {
+    const arenaId = this.arenas[index];
+    if (!arenaId || this.rounds[index]) return;
+    const scoring = SCORING[arenaId] as Scoring<RoundStanding>;
+    const results = new Map<string, RoundResult>();
+    for (const [row, points] of award(rows, scoring.tie)) results.set(row.name, { arenaId, summary: scoring.summary(row), points });
+    this.rounds[index] = results;
+  }
+
+  snapshot(interrupted: boolean): PartyResults {
+    const rows: PartyStanding[] = this.names.map(name => {
+      const rounds = this.rounds.map(round => round?.get(name) ?? null);
+      return { place: 0, name, rounds, totalPoints: rounds.reduce((sum, round) => sum + (round?.points ?? 0), 0) };
+    });
+    rows.sort((a, b) => b.totalPoints - a.totalPoints || a.name.localeCompare(b.name));
+    let previous: number | undefined;
+    let place = 0;
+    rows.forEach((row, index) => {
+      if (row.totalPoints !== previous) place = index + 1;
+      row.place = place;
+      previous = row.totalPoints;
+    });
+    return { interrupted, preset: this.preset, arenas: [...this.arenas], rows };
+  }
+}

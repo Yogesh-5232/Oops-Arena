@@ -10,7 +10,7 @@ Chaos Playground is a colorful third-person browser party game for groups of fri
 |---|---:|---:|---:|---:|---:|
 | Quick | 5 s | 105 s | 0 s | 10 s | 120 s |
 | Short | 8 s | 2 × 140 s | 12 s | 15 s | 315 s |
-| Standard | 8 s | 3 × 160 s | 2 × 15 s | 22 s | 540 s |
+| Standard (Dash, Lava, Dodge) | 8 s | 3 × 160 s | 2 × 15 s | 22 s | 540 s |
 | Full | 8 s | 3 × 170 s + 150 s finale | 3 × 12 s | 26 s | 730 s |
 
 All active windows include countdown, loading after kickoff, gameplay, transitions and results. Queue time is outside the match. The server owns every cutoff. Quick uses a compact layout or accelerated hazard schedule. Validate which modes can meet its pacing before exposing them. Keep outcome-locked time playable. Use an existing arena variation for the Full finale and regular score weighting.
@@ -20,7 +20,7 @@ All active windows include countdown, loading after kickoff, gameplay, transitio
 | Arena | Core decision | Implementation boundary |
 |---|---|---|
 | Ultimate Obstacle Dash | Route and jump timing | Two or three checkpoints, controlled moving hazards, validated finish order and progress-ranked DNFs |
-| Floor Is Lava | Climb and choose safe routes | Early respawn, progress gates, brief elimination near the end, return next round |
+| Floor Is Lava | Climb and choose safe routes | Four-gate stepped tower; stairs or timed lifts; lava rises in warned steps; early touches respawn on the highest safe pad; the closing stretch (last 16%) sends caught players to a balcony; ranks survivors, then later eliminations, gate, fewer falls |
 | Dodge Everything | Read telegraphs and safe gaps | Two initial hazard families, authored seeded combinations, short recovery |
 | Teamwork Madness | Coordinate cargo movement or handoffs | Mirrored lanes, capped contributions, server ownership and recoverable mistakes |
 
@@ -37,7 +37,7 @@ Normalize race placement by roster size. A starting candidate is `2 + round(10 *
 | Milestone | Scope |
 |---|---|
 | First playable | Greybox, four browsers, responsive authoritative movement, platform, hazard, respawn, prediction, reconnect and 12-seat sanity check |
-| MVP must-have | Four arenas, plaza, 4–12 players, private presets/codes, one party-aware public Short queue, ready state, rematch, scoring, odd-team support, server timing, basic colors/emotes and desktop validation |
+| MVP must-have | Four arenas, plaza, 4–12 players, private presets/codes, one party-aware public Short queue (Phase 5, deferred), ready state, rematch, scoring, odd-team support, server timing, basic colors/emotes and desktop validation |
 | Should-have | Authored variants, short voting flow, remapping, sensitivity, accessible warning cues and objective highlights |
 | Post-MVP | Persistent XP/cosmetics, additional regions and queues, Giant Ball Race, Capture the Flag, Balance Chaos and Treasure Hunt |
 | Removed from initial scope | Freeform cooperative lifting, huge open world, bespoke finale systems, automatic funniest-moment selection, voice chat, trading, crafting and complex inventory |

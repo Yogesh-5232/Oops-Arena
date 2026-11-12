@@ -2,7 +2,7 @@ import * as pc from 'playcanvas';
 import { Client } from '@colyseus/sdk';
 import { Predict, classifyDrift, type Reconciler } from '@colyseus/sdk/predict';
 import {
-  ARENA_BUILD, MODE, TICK_MS, arenaManifest, nextInputTick, resolveDodgeHazards, simulateInput, type Input, type Player,
+  ARENA_BUILD, MODE, TICK_MS, arenaManifest, nextInputTick, resolveDodgeHazards, resolveLava, simulateInput, type Input, type Player,
 } from '@chaos/shared';
 import { ArenaStage } from './arena-stage.js';
 import { ArenaView, createMaterial, materialCount, solid } from './arena-view.js';
@@ -135,6 +135,7 @@ async function connect(action: 'playground' | 'create' | 'join') {
     const panel = isPrivate ? privatePanel(
       value => room.sendUnreliable('ready', value),
       () => room.sendUnreliable('start'),
+      value => room.sendUnreliable('preset', value),
     ) : undefined;
     const canMove = () => !isPrivate || room.state.phase === 'lobby' ||
       ((room.state.phase === 'round' || room.state.phase === 'cooldown') &&
@@ -148,6 +149,7 @@ async function connect(action: 'playground' | 'create' | 'join') {
       if (arena.hazards === 'dodge') resolveDodgeHazards(
         state, before, room.state.arenaSeed, room.state.arenaStartTick, state.simTick,
       );
+      else if (arena.hazards === 'lava') resolveLava(state, state.simTick - room.state.arenaStartTick, room.state.roundTicks);
     };
     // Prediction: the local avatar runs the shared step the moment an input is sent;
     // each server update rewinds to the server's answer and replays unacknowledged inputs.
@@ -328,11 +330,12 @@ async function connect(action: 'playground' | 'create' | 'join') {
       // Movers are drawn at our own smoothed simulation tick, the same moment our
       // predicted avatar is drawn at, so a rider stays glued to the deck.
       const worldTick = me && meSource ? predict.value(meSource, 'simTick') : estimateTick();
-      // Hazards only run during the Dodge round itself; the server scores nothing outside it.
-      const dodgeLive = isPrivate && room.state.arenaId === 'dodge' &&
+      // Hazards only run during a round itself; the server scores nothing outside it.
+      const roundLive = isPrivate && room.state.arenaId !== 'plaza' &&
         (room.state.phase === 'round' || room.state.phase === 'cooldown');
-      arenas.current?.pose(worldTick, dodgeLive
-        ? { seed: room.state.arenaSeed, elapsedTicks: worldTick - room.state.arenaStartTick } : undefined);
+      arenas.current?.pose(worldTick, roundLive ? {
+        seed: room.state.arenaSeed, elapsedTicks: worldTick - room.state.arenaStartTick, roundTicks: room.state.roundTicks,
+      } : undefined);
       // A respawn jumps the predicted position: cut to it instead of gliding for a frame.
       if (me && me.state.respawns !== shownRespawns) {
         if (shownRespawns !== undefined) cutFrames = 2;

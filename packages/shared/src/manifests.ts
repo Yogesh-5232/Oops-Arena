@@ -2,6 +2,7 @@ import { GREYBOX_ARENA, type Box } from './arena.js';
 import { HALF_EXTENTS } from './collision.js';
 import { DASH_BOXES, DASH_GATES, DASH_START_Z, dashSpawn } from './dash.js';
 import { DODGE_BOXES, DODGE_MOVERS, DODGE_RULES, dodgeHazards, dodgeSpawn } from './dodge.js';
+import { LAVA_BOXES, LAVA_MOVERS, LAVA_PADS, LAVA_RULES, LAVA_TIERS, lavaBalconySpot, lavaLevel, lavaSpawn } from './lava.js';
 import { MODE, MOVEMENT, NO_JUMP } from './movement.js';
 import { MOVERS, type Mover } from './movers.js';
 import { INPUT_BUFFER, MAX_TICK_REWIND, TICK_MS } from './timing.js';
@@ -11,9 +12,9 @@ import { INPUT_BUFFER, MAX_TICK_REWIND, TICK_MS } from './timing.js';
  * cannot follow. Arena content and the rule data in BUILD_RULES are hashed into
  * the build id automatically; logic changes inside functions are not.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
-export type ArenaId = 'plaza' | 'dash' | 'dodge';
+export type ArenaId = 'plaza' | 'dash' | 'dodge' | 'lava';
 type Vec3 = readonly [number, number, number];
 type Spawn = { x: number; y: number; z: number };
 
@@ -34,7 +35,7 @@ export type ArenaManifest = {
   readonly movers: readonly Mover[];
   readonly markers: readonly ArenaMarker[];
   /** Seeded per-match hazards drawn and resolved from the match seed. */
-  readonly hazards: 'none' | 'dodge';
+  readonly hazards: 'none' | 'dodge' | 'lava';
   /** Spawn for a slot; undefined means the player's own plaza spawn. */
   readonly spawn?: (slot: number) => Spawn;
 };
@@ -45,6 +46,10 @@ const checkpointMarkers: ArenaMarker[] = GREYBOX_ARENA.checkpoints.map(pad => ({
 const gateMarkers: ArenaMarker[] = DASH_GATES.map((gate, index) => ({
   id: `dash-gate-${index}`, kind: 'gate',
   min: [gate.x - gate.halfWidth, 0.005, gate.z - 0.4], max: [gate.x + gate.halfWidth, 0.055, gate.z + 0.4],
+}));
+
+const lavaMarkers: ArenaMarker[] = LAVA_PADS.map(([x, y, z], index) => ({
+  id: `lava-pad-${index + 1}`, kind: 'checkpoint', min: [x - 1.5, y - 1, z - 1], max: [x + 1.5, y - 0.94, z + 1],
 }));
 
 export const ARENAS = {
@@ -59,6 +64,10 @@ export const ARENAS = {
   dodge: {
     id: 'dodge', version: 1, name: 'Dodge Everything',
     boxes: DODGE_BOXES, movers: DODGE_MOVERS, markers: [], hazards: 'dodge', spawn: dodgeSpawn,
+  },
+  lava: {
+    id: 'lava', version: 1, name: 'Floor Is Lava',
+    boxes: LAVA_BOXES, movers: LAVA_MOVERS, markers: lavaMarkers, hazards: 'lava', spawn: lavaSpawn,
   },
 } as const satisfies { readonly [Id in ArenaId]: ArenaManifest & { readonly id: Id } };
 
@@ -87,6 +96,11 @@ export const BUILD_RULES = {
     schedule: [1, 0x5eed].map(seed => Array.from(
       { length: DODGE_RULES.waveTicks * 2 }, (_, tick) => dodgeHazards(seed, tick),
     ).filter(hazards => hazards.length > 0)),
+  },
+  lava: {
+    LAVA_RULES, LAVA_TIERS, LAVA_PADS,
+    balcony: Array.from({ length: GREYBOX_ARENA.spawns.length }, (_, slot) => lavaBalconySpot(slot)),
+    level: Array.from({ length: 161 }, (_, second) => lavaLevel(second * 30, 4800)),
   },
 };
 
