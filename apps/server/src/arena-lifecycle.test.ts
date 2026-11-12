@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { PLAYLISTS, PRESETS, TEAM_RULES, laneX, playlistMs, plateCenter, spawnPlayer, teamSpawn } from '@chaos/shared';
+import { ARENAS, PLAYLISTS, PRESETS, TEAM_RULES, laneX, playlistMs, plateCenter, spawnPlayer, teamSpawn } from '@chaos/shared';
 import { liveArenaRuns } from './arena-run.js';
 import { DashArenaRun } from './dash-arena.js';
 import { DodgeArenaRun } from './dodge-arena.js';
@@ -13,7 +13,7 @@ const roster = ['a', 'b', 'c', 'd'];
 const setup = { owner: 'room-a', roster, name: (id: string) => id, seed: 7, startTick: 0, roundTicks: 4800 };
 
 test('a disposed arena run performs no gameplay and cannot be revived', () => {
-  for (const run of [new DashArenaRun(), new DodgeArenaRun(), new LavaArenaRun(), new TeamArenaRun()]) {
+  for (const run of [new DashArenaRun(), new DodgeArenaRun(), new LavaArenaRun(), new TeamArenaRun(), new DodgeArenaRun(ARENAS.finale)]) {
     assert.throws(() => run.update(0, 0), /not active/);
     run.setup(setup);
     assert.equal(liveArenaRuns('room-a'), 1);
@@ -92,7 +92,7 @@ test('repeated Short Party arena cycles settle to a stable heap', { skip: !gc &&
 
 test('every playlist matches its preset length and names the arena to prefetch', () => {
   for (const [id, playlist] of Object.entries(PLAYLISTS)) {
-    const preset = playlist.rounds.length === 1 ? 'quick' : id as 'short' | 'standard';
+    const preset = playlist.rounds.length === 1 ? 'quick' : id as 'short' | 'standard' | 'full';
     assert.equal(playlistMs(playlist), PRESETS[preset] * 1000, `${id} length`);
     const clock = new PartyClock(1000, playlist);
     assert.equal(clock.endsAt - clock.startedAt, playlistMs(playlist));
@@ -223,4 +223,28 @@ test('Teamwork caps counted pushers at the smaller team size', () => {
   const moved = TEAM_RULES.cargoStartZ - run.objective().cargo0;
   assert.ok(Math.abs(moved - TEAM_RULES.pushSpeed[1] / 30) < 1e-9, 'three Blue pushers count as one against a team of one');
   run.dispose();
+});
+
+test('Full runs Dash, Lava and Teamwork for 170 s each, then a 150 s finale, in 730 s', () => {
+  const clock = new PartyClock(0, PLAYLISTS.full);
+  assert.deepEqual(clock.rounds.map(round => round.arenaId), ['dash', 'lava', 'team', 'finale']);
+  assert.deepEqual(clock.rounds.map(round => round.lengthMs), [170_000, 170_000, 170_000, 150_000]);
+  assert.equal(clock.rounds[0]!.startsAt, 8_000);
+  for (let index = 1; index < clock.rounds.length; index++) {
+    assert.equal(clock.rounds[index]!.startsAt - clock.rounds[index - 1]!.endsAt, 12_000, 'transitions are 12 s');
+  }
+  assert.equal(clock.endsAt - clock.rounds[3]!.endsAt, 26_000, 'final results are 26 s');
+  assert.equal(clock.endsAt, PRESETS.full * 1000);
+  const finale = clock.rounds[3]!;
+  assert.equal(clock.snapshot(finale.startsAt - 1, () => false).nextArenaId, 'finale', 'the finale is prefetched during the transition');
+  assert.equal(clock.snapshot(finale.endsAt - 1, () => false).phase, 'round');
+  assert.equal(clock.snapshot(finale.endsAt, () => false).phase, 'results');
+});
+
+test('the finale scores like any round and is labelled as the finale', () => {
+  const board = new PartyScoreboard(['a', 'b'], 'full', ['dash', 'lava', 'team', 'finale']);
+  board.record(3, [{ name: 'a', hits: 1, active: true }, { name: 'b', hits: 4, active: true }]);
+  const rows = Object.fromEntries(board.snapshot(false).rows.map(row => [row.name, row.rounds[3]!]));
+  assert.deepEqual([rows.a!.points, rows.b!.points], [12, 2]);
+  assert.equal(rows.a!.summary, 'Finale 1 hits');
 });

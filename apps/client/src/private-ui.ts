@@ -27,7 +27,7 @@ const resultsTitle = document.querySelector<HTMLElement>('#results-title')!;
 const standings = document.querySelector<HTMLElement>('#standings')!;
 const presetPicker = document.querySelector<HTMLSelectElement>('#preset')!;
 const presetLabel = presetPicker.closest('label')!;
-const SHORT_NAMES = { dash: 'Dash', lava: 'Lava', dodge: 'Dodge', team: 'Teamwork' };
+const SHORT_NAMES = { dash: 'Dash', lava: 'Lava', dodge: 'Dodge', team: 'Teamwork', finale: 'Dodge finale' };
 
 for (const [id, playlist] of Object.entries(PLAYLISTS)) {
   const seconds = playlistMs(playlist) / 1000;
@@ -50,7 +50,7 @@ function roundLine(state: PrivateState, time: number, me: Guest): string {
     return `${name} · ${time}s · Team ${TEAM_NAMES[own]} crate ${percent(crates[own]!)} vs ${TEAM_NAMES[1 - own]} ${percent(crates[1 - own]!)}` +
       ' · push together; stand on the green plate past a red gate to open it';
   }
-  if (arenaId === 'dodge') return `${name} · ${time}s · ${progress} hits`;
+  if (arenaId === 'dodge' || arenaId === 'finale') return `${name} · ${time}s · ${progress} hits`;
   if (arenaId === 'lava') return progress < 0
     ? `${name} · ${time}s · caught by the lava, watching from the balcony`
     : `${name} · ${time}s · gate ${progress}/${LAVA_GATES}`;

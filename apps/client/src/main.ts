@@ -162,7 +162,7 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
       const team = Math.max(0, room.state.guests?.get(room.sessionId)?.team ?? 0);
       simulateInput(state, command, ctx.dt, boxes, arena.spawn?.(state.slot, team), undefined, arena.movers);
       if (arena.hazards === 'dodge') resolveDodgeHazards(
-        state, before, room.state.arenaSeed, room.state.arenaStartTick, state.simTick,
+        state, before, room.state.arenaSeed, room.state.arenaStartTick, state.simTick, arena.dodge,
       );
       else if (arena.hazards === 'lava') resolveLava(state, state.simTick - room.state.arenaStartTick, room.state.roundTicks);
       else if (teamArena) resolveCargo(state, room.state.cargo0, room.state.cargo1);

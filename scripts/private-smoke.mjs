@@ -189,6 +189,40 @@ try {
   await until(() => waiting.state.phase === 'lobby', 'interrupted rematch did not reopen the lobby', 3000);
   assert.equal((await diagnostics(waiting)).arenaRuns, 0, 'arena runs must be released after an interrupted match');
   console.log('PASS: same-room rematch and interrupted-session result');
+  await leave(waiting);
+
+  // Full Party: four rounds (the last a shorter Dodge finale) on one fixed 730-second timeline.
+  const fullHost = await track(sdk.create('private-dash', { capacity: 4, build: ARENA_BUILD }));
+  const full = [fullHost];
+  for (let i = 1; i < 4; i++) full.push(await track(sdk.joinById(fullHost.state.code, { build: ARENA_BUILD })));
+  fullHost.send('preset', 'full');
+  await until(() => full.every(room => room.state.preset === 'full'), 'Full preset was not selected');
+  for (const room of full) room.send('ready', true);
+  await until(() => full.every(room => fullHost.state.guests.get(room.sessionId).ready), 'Full ready flags missing');
+  const fullStarted = performance.now();
+  const stopFull = watchArenaRuns(full[1]);
+  fullHost.send('start');
+  await until(() => fullHost.state.phase === 'countdown', 'Full Party did not start');
+  const teamSizes = [0, 0];
+  fullHost.state.guests.forEach(guest => teamSizes[guest.team]++);
+  assert.deepEqual(teamSizes, [2, 2], 'Full Party assigns two even teams for Teamwork');
+  await until(() => fullHost.state.arenaId === 'finale' && fullHost.state.phase === 'round', 'finale did not start', 80_000);
+  assert.equal(fullHost.state.roundTicks, Math.round(150_000 * testScale / (1000 / 30)), 'the finale has its own shorter length');
+  await until(() => fullHost.state.phase === 'lobby', 'Full Party did not return to the lobby', 30_000);
+  const fullElapsed = performance.now() - fullStarted;
+  const fullSeen = await stopFull();
+  const fullResult = JSON.parse(fullHost.state.standings);
+  assert.deepEqual(fullResult.arenas, ['dash', 'lava', 'team', 'finale']);
+  for (const row of fullResult.rows) {
+    assert.ok(row.rounds.length === 4 && row.rounds.every(Boolean), `${row.name} is missing a round result`);
+    assert.match(row.rounds[3].summary, /^Finale /);
+  }
+  assert.deepEqual([...fullSeen.arenas].sort(), ['dash', 'finale', 'lava', 'plaza', 'team']);
+  assert.equal(fullSeen.max, 1, 'exactly one arena run may be live during a Full match');
+  assert.equal((await diagnostics(fullHost)).arenaRuns, 0, 'arena runs must be released after a Full match');
+  const fullExpected = 730_000 * testScale;
+  assert.ok(fullElapsed >= fullExpected - 1500 && fullElapsed < fullExpected + 2500, `Full match took ${Math.round(fullElapsed)}ms`);
+  console.log('PASS: Full Party preset: Dash, Lava, Teamwork and Dodge finale scored on the fixed 730 s timeline');
 } finally {
   await Promise.allSettled([...rooms].map(room => room.leave()));
   server.kill();

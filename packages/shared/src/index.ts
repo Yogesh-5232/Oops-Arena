@@ -10,7 +10,10 @@ export {
   MODE, MOVEMENT, NO_JUMP, resetToSpawn, spawnPlayer, step, type Input, type Player,
 } from './movement.js';
 export { DASH_BOXES, DASH_GATES, DASH_START_Z, dashSpawn, crossesDashGate, type DashStanding } from './dash.js';
-export { DODGE_BOXES, DODGE_MOVERS, DODGE_RULES, dodgeHazards, dodgeSpawn, resolveDodgeHazards, type DodgeHazard } from './dodge.js';
+export {
+  DODGE_BOXES, DODGE_FINALE_RULES, DODGE_MOVERS, DODGE_RULES, dodgeHazards, dodgeSpawn, resolveDodgeHazards, type DodgeHazard,
+  type DodgeRules,
+} from './dodge.js';
 export {
   ARENAS, ARENA_BUILD, BUILD_RULES, PROTOCOL_VERSION, arenaManifest, buildId, type ArenaId, type ArenaManifest, type ArenaMarker,
 } from './manifests.js';
@@ -19,7 +22,7 @@ export {
   lavaWarning, resolveLava, type LavaEvent,
 } from './lava.js';
 export {
-  PLAYLISTS, playlistMs, type DodgeStanding, type LavaStanding, type PartyResults, type PartyStanding, type Playlist,
+  PLAYLISTS, playlistMs, roundMsAt, type DodgeStanding, type LavaStanding, type PartyResults, type PartyStanding, type Playlist,
   type PresetId, type RoundArenaId, type RoundResult, type RoundStanding, type TeamStanding,
 } from './short-party.js';
 export {

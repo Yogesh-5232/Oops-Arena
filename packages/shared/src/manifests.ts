@@ -1,7 +1,7 @@
 import { GREYBOX_ARENA, type Box } from './arena.js';
 import { HALF_EXTENTS } from './collision.js';
 import { DASH_BOXES, DASH_GATES, DASH_START_Z, dashSpawn } from './dash.js';
-import { DODGE_BOXES, DODGE_MOVERS, DODGE_RULES, dodgeHazards, dodgeSpawn } from './dodge.js';
+import { DODGE_BOXES, DODGE_FINALE_RULES, DODGE_MOVERS, DODGE_RULES, dodgeHazards, dodgeSpawn, type DodgeRules } from './dodge.js';
 import { LAVA_BOXES, LAVA_MOVERS, LAVA_PADS, LAVA_RULES, LAVA_TIERS, lavaBalconySpot, lavaLevel, lavaSpawn } from './lava.js';
 import { MODE, MOVEMENT, NO_JUMP } from './movement.js';
 import { MOVERS, type Mover } from './movers.js';
@@ -13,9 +13,9 @@ import { INPUT_BUFFER, MAX_TICK_REWIND, TICK_MS } from './timing.js';
  * cannot follow. Arena content and the rule data in BUILD_RULES are hashed into
  * the build id automatically; logic changes inside functions are not.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
-export type ArenaId = 'plaza' | 'dash' | 'dodge' | 'lava' | 'team';
+export type ArenaId = 'plaza' | 'dash' | 'dodge' | 'lava' | 'team' | 'finale';
 type Vec3 = readonly [number, number, number];
 type Spawn = { x: number; y: number; z: number };
 
@@ -37,6 +37,8 @@ export type ArenaManifest = {
   readonly markers: readonly ArenaMarker[];
   /** Seeded per-match hazards drawn and resolved from the match seed. */
   readonly hazards: 'none' | 'dodge' | 'lava' | 'team';
+  /** Wave timing for 'dodge' hazards; omitted means DODGE_RULES. Lets a finale reuse the Dodge arena. */
+  readonly dodge?: DodgeRules;
   /** Spawn for a slot (and team, in team arenas); undefined means the player's own plaza spawn. */
   readonly spawn?: (slot: number, team?: number) => Spawn;
 };
@@ -84,6 +86,11 @@ export const ARENAS = {
     id: 'team', version: 1, name: 'Teamwork Madness',
     boxes: TEAM_BOXES, movers: TEAM_MOVERS, markers: teamMarkers, hazards: 'team', spawn: teamSpawn,
   },
+  /** Full preset finale: a variation of Dodge Everything (same floor, faster waves with both hazard families). */
+  finale: {
+    id: 'finale', version: 1, name: 'Dodge Everything: Finale',
+    boxes: DODGE_BOXES, movers: DODGE_MOVERS, markers: [], hazards: 'dodge', dodge: DODGE_FINALE_RULES, spawn: dodgeSpawn,
+  },
 } as const satisfies { readonly [Id in ArenaId]: ArenaManifest & { readonly id: Id } };
 
 /** The manifest for a replicated arena id. An empty id (state default) is the plaza. */
@@ -110,6 +117,12 @@ export const BUILD_RULES = {
     DODGE_RULES,
     schedule: [1, 0x5eed].map(seed => Array.from(
       { length: DODGE_RULES.waveTicks * 2 }, (_, tick) => dodgeHazards(seed, tick),
+    ).filter(hazards => hazards.length > 0)),
+  },
+  finale: {
+    DODGE_FINALE_RULES,
+    schedule: [1, 0x5eed].map(seed => Array.from(
+      { length: DODGE_FINALE_RULES.waveTicks * 2 }, (_, tick) => dodgeHazards(seed, tick, DODGE_FINALE_RULES),
     ).filter(hazards => hazards.length > 0)),
   },
   lava: {
@@ -145,7 +158,7 @@ export function buildId(
   const content = Object.values(arenas)
     .sort((a, b) => a.id.localeCompare(b.id))
     .map(arena => ({
-      id: arena.id, version: arena.version, hazards: arena.hazards,
+      id: arena.id, version: arena.version, hazards: arena.hazards, dodge: arena.dodge ?? null,
       boxes: arena.boxes, movers: arena.movers, markers: arena.markers,
       spawns: arena.spawn ? Array.from({ length: GREYBOX_ARENA.spawns.length }, (_, slot) => arena.spawn!(slot)) : null,
     }));

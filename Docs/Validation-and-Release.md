@@ -89,6 +89,16 @@ The pre-Phase 4 Quick Dash lifecycle remains the implementation baseline for the
 
 This is SDK-level historical evidence. The project owner reported the Short Party browser acceptance above complete on 2026-11-12 on separate devices at full speed, closing Phases 3 and 4.
 
+## Full Party acceptance
+
+**Automated evidence (2026-11-12, branch `phase-6-full-preset`):** `npm run check` passed (70 unit tests, including the Full timeline, finale hazards and finale scoring). `npm run smoke:private` played one whole Full match at 10% clock speed: Dash, Lava, Teamwork and the Dodge finale were each scored, Teamwork had two teams of two, the finale ran on its own 150 s length, at most one arena run was live and none remained after, and the 730 s timeline held. In one browser tab with three SDK bots at 10% speed, the match ran Dash → Lava → Teamwork → finale and the final standings listed all four rounds, with no console errors.
+
+Still open, with four or more people on separate devices at full speed:
+
+1. Complete a full 730-second Full match. Record idle time, voluntary rematches and any confusion between rounds.
+2. Confirm each transition loads the next arena without stalling, and that a reload during Teamwork or the finale rejoins the current round.
+3. Confirm the finale's faster combined waves are readable: every hazard shows its warning, and players can dodge a sweeper and drop zones together.
+
 ## Phase 5 private party browser playtest
 
 1. Create a party with room for five and invite four friends by code.
