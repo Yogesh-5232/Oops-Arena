@@ -13,7 +13,7 @@ Numbers are starting values to tune by feel.
 - **Recoverable mistakes:** a crate with no pusher for 1 s rolls back at 0.6 u/s, but never behind the last gate it fully cleared.
 - **Disruption:** one sweeper bar per lane at z = 9 and z = −13 crosses the lane on the same mirrored timing. It can be jumped, and a hit knocks pushers off the crate.
 - **End:** the first delivery decides the round, and the rest of the round is cooldown. Otherwise the timer ends it.
-- **Scoring:** every member shares their team's outcome. Delivered beats not delivered, an earlier delivery beats a later one, then crate progress decides. Equal team outcomes share placement points, using the existing average-rank rule, so a 2v2 win is 10 points for each winner and 4 for each loser. Disconnected players rank last as DNF.
+- **Scoring:** every member shares their team's outcome. Delivered beats not delivered, an earlier delivery beats a later one, then crate progress decides. Team rounds use fixed points so team size never changes them: 10 for each winner, 4 for each loser, 7 each on a draw, and 2 for a disconnected player (DNF). The average-rank rule other rounds use gave a losing 5-player team 5 points but a losing 4-player team 4 in the same 9-player match; the roster sweep found it. A 6-point win/loss gap is also smaller than an individual round's 10-point spread, so one team result cannot swing the leaderboard more than a solo round.
 - **Teams:** alternate down the roster after rotating it by the room's match count. Sizes never differ by more than one, and with an odd roster the extra seat changes hands across rematches. The team is fixed for the whole match and replicated on each guest (`team`, −1 outside a match).
 
 ## Implementation

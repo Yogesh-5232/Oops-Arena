@@ -99,6 +99,10 @@ Still open, with four or more people on separate devices at full speed:
 2. Confirm each transition loads the next arena without stalling, and that a reload during Teamwork or the finale rejoins the current round.
 3. Confirm the finale's faster combined waves are readable: every hazard shows its warning, and players can dodge a sweeper and drop zones together.
 
+## Roster-size sweep
+
+**Automated evidence (2026-11-13, branch `phase-6-roster-sweep`):** `npm run sweep:roster` at a quarter-speed clock completed Dash, Lava, Dodge and Teamwork for every roster size from 4 to 12 (36 matches, about two minutes). In every match the whole roster raced, nobody left the session, every racer was scored once with 2–12 points, the arena run was released, and the match returned to the lobby on its deadline. Dash bots finished at every size, and with them all finished the round locked early to cooldown. Teamwork teams ranged from 2v2 to 6v6, never more than one apart, and team points were 10 and 4 at every size. Rooms ran at 29.2–30 ticks/s with 72 bots on one machine; see the tick-rate note in Status-and-Decisions.
+
 ## Phase 5 private party browser playtest
 
 1. Create a party with room for five and invite four friends by code.
