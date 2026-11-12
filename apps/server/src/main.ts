@@ -273,6 +273,7 @@ class PrivateDash extends Playground {
         roster, names, clock, scoreboard: new PartyScoreboard([...names.values()], preset, arenas),
         seed: randomInt(1, 0x7fffffff),
         roundTicks: Math.round(clock.roundMs / TICK_MS),
+        // Predicted here; startRound re-anchors rounds after the first to the actual tick.
         startTicks: clock.rounds.map(round => startedTick + Math.round((round.startsAt - startedAt) / TICK_MS)),
         runs: arenas.map(() => undefined), started: arenas.map(() => false), locked: arenas.map(() => false),
         currentIndex: 0, interrupted: false,
@@ -298,10 +299,20 @@ class PrivateDash extends Playground {
     });
   }
 
-  /** Sets up round `index`'s arena run and moves the roster onto its spawns. */
-  private startRound(index: number) {
+  /**
+   * Sets up round `index`'s arena run and moves the roster onto its spawns.
+   * Called at kickoff for round 0 (its start tick is predicted from the clock)
+   * and on the first tick at or past each later round's start, which anchors
+   * that round's hazard timeline to the real world tick instead of a 30 Hz
+   * prediction made minutes earlier.
+   */
+  private startRound(index: number, serverTick?: number, now?: number) {
     const active = this.active!;
-    const run = createRun(active.clock.rounds[index]!.arenaId);
+    const round = active.clock.rounds[index]!;
+    if (serverTick !== undefined && now !== undefined) {
+      active.startTicks[index] = Math.max(0, serverTick - Math.floor((now - round.startsAt) / TICK_MS));
+    }
+    const run = createRun(round.arenaId);
     active.runs[index] = run;
     active.started[index] = true;
     run.setup({
@@ -401,7 +412,7 @@ class PrivateDash extends Playground {
     }
   }
 
-  private updateMatch(now: number, _serverTick: number) {
+  private updateMatch(now: number, serverTick: number) {
     const active = this.active;
     if (!active) return;
     const { clock, roster } = active;
@@ -411,7 +422,7 @@ class PrivateDash extends Playground {
     }
 
     clock.rounds.forEach((round, index) => {
-      if (!active.started[index] && now >= round.startsAt) this.startRound(index);
+      if (!active.started[index] && now >= round.startsAt) this.startRound(index, serverTick, now);
       const run = active.runs[index];
       if (!run) return;
       if (!active.locked[index] && (run.allFinished || now >= round.endsAt)) {

@@ -107,6 +107,33 @@ test('every playlist matches its preset length and names the arena to prefetch',
   assert.equal(clock.acceptsScoring(1, dash!.startsAt), false);
 });
 
+test('Lava credits only climbed gates and locks once every connected racer is caught', () => {
+  const run = new LavaArenaRun();
+  run.setup({ ...setup, roster: ['idle', 'climber'] });
+  const idle = spawnPlayer(0);
+  Object.assign(idle, { x: 0, y: 1, z: 15.5, grounded: true });
+  const climber = spawnPlayer(1);
+  Object.assign(climber, { x: 0, y: 4, z: 9.5, grounded: true });
+  // The floor is flooded at 20% of the round: idle is carried up to the T1 pad and stands there.
+  for (let tick = 960; tick < 970; tick++) {
+    run.playerStep('idle', idle, idle, tick * 33, tick);
+    run.playerStep('climber', climber, climber, tick * 33, tick);
+  }
+  assert.equal(idle.checkpoint, 1);
+  const byName = () => Object.fromEntries(run.rank().map(row => [row.name, row]));
+  assert.equal(byName().idle!.gate, 0, 'a carried respawn earns no gate');
+  assert.equal(byName().idle!.falls, 1);
+  assert.equal(byName().climber!.gate, 1, 'standing on a tier reached by climbing earns it');
+  assert.equal(run.allFinished, false);
+  // Closing stretch: both touch the lava and go to the balcony.
+  for (const [id, player] of [['idle', idle], ['climber', climber]] as const) {
+    player.y = 2;
+    run.playerStep(id, player, player, 150_000, 4700);
+  }
+  assert.equal(run.allFinished, true, 'nothing left to decide once everyone is out');
+  run.dispose();
+});
+
 test('Lava ranks survivors above eliminated players, later eliminations higher, and ties share points', () => {
   const board = new PartyScoreboard(['a', 'b', 'c', 'd'], 'standard', ['dash', 'lava', 'dodge']);
   board.record(1, [

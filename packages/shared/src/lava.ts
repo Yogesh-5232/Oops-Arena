@@ -209,37 +209,46 @@ function place(player: Player, at: { x: number; y: number; z: number }): void {
   player.respawns = (player.respawns + 1) % 256;
 }
 
-/** Respawn pad for a player at `gate`, carried forward past any pad the lava has covered. */
-function safePad(player: Player, gate: number, lava: number): { x: number; y: number; z: number } {
-  for (let index = gate; index <= LAVA_GATES; index++) {
-    const surface = LAVA_TIERS[index]!.top;
-    if (surface > lava + LAVA_RULES.safeMargin) {
-      if (index === 0) return lavaSpawn(player.slot);
-      const [x, y, z] = LAVA_PADS[index - 1]!;
-      return { x, y, z };
-    }
+/** Gate whose pad a player at `gate` respawns on: carried forward past any pad the lava has covered. */
+function safeGate(gate: number, lava: number): number {
+  for (let index = gate; index < LAVA_GATES; index++) {
+    if (LAVA_TIERS[index]!.top > lava + LAVA_RULES.safeMargin) return index;
   }
-  const [x, y, z] = LAVA_PADS[LAVA_GATES - 1]!;
+  return LAVA_GATES;
+}
+
+function gateSpot(player: Player, gate: number): { x: number; y: number; z: number } {
+  if (gate === 0) return lavaSpawn(player.slot);
+  const [x, y, z] = LAVA_PADS[gate - 1]!;
   return { x, y, z };
 }
 
-export type LavaEvent = 'respawn' | 'out' | null;
+/**
+ * What a lava step did: 'gate' when the player climbed onto a higher tier by
+ * themselves (the only way to earn gate credit), 'respawn' when lava sent them
+ * to a pad, 'out' when it caught them in the closing stretch.
+ */
+export type LavaEvent = 'gate' | 'respawn' | 'out' | null;
 
 /**
  * Lava step after the shared movement step, identical on server and in
  * prediction: raise the player's gate when standing on a higher tier, then
- * resolve lava contact. `player.checkpoint` holds the gate (0 = floor).
+ * resolve lava contact. `player.checkpoint` holds the respawn gate (0 = floor).
+ * A respawn carried past flooded pads moves `checkpoint` to the pad it lands
+ * on, so standing there is not mistaken for climbing.
  */
 export function resolveLava(player: Player, elapsedTicks: number, roundTicks: number): LavaEvent {
   if (onBalcony(player)) return null;
   const tier = standingTier(player);
-  if (tier > player.checkpoint) player.checkpoint = tier;
+  const climbed = tier > player.checkpoint;
+  if (climbed) player.checkpoint = tier;
   const lava = lavaLevel(elapsedTicks, roundTicks);
-  if (player.y - HALF_EXTENTS[1] >= lava) return null;
+  if (player.y - HALF_EXTENTS[1] >= lava) return climbed ? 'gate' : null;
   if (lavaClosing(elapsedTicks, roundTicks)) {
     place(player, lavaBalconySpot(player.slot));
     return 'out';
   }
-  place(player, safePad(player, player.checkpoint, lava));
+  player.checkpoint = safeGate(player.checkpoint, lava);
+  place(player, gateSpot(player, player.checkpoint));
   return 'respawn';
 }

@@ -42,6 +42,7 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void,
   let lastGuests = '';
   let lastStandings = '';
   let lastPhase = '';
+  let lastPreset = '';
   let canAct = true;
   panel.hidden = false;
   startButton.onclick = start;
@@ -92,7 +93,8 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void,
       const host = sessionId === state.hostId;
       presetLabel.hidden = !lobby;
       presetPicker.disabled = !canAct || !host;
-      if (presetPicker.value !== state.preset && Object.hasOwn(PLAYLISTS, state.preset)) presetPicker.value = state.preset;
+      // Follow the server only when its preset changes, so the host's pick is not undone by patches sent before the server applied it.
+      if (state.preset !== lastPreset && Object.hasOwn(PLAYLISTS, state.preset)) presetPicker.value = lastPreset = state.preset;
       readyButton.hidden = !lobby;
       readyButton.disabled = !canAct || !me?.connected;
       readyButton.textContent = me?.ready ? 'Cancel ready' : 'Ready';

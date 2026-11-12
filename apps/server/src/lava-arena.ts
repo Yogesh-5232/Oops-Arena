@@ -27,7 +27,8 @@ export class LavaArenaRun extends ArenaRunBase<LavaStanding[]> {
     const racer = this.racers.get(id);
     if (!racer) return 0;
     if (racer.active && racer.outMs === null) {
-      racer.gate = Math.max(racer.gate, player.checkpoint);
+      // Only tiers the player climbed onto count; respawns carried past flooded pads do not.
+      if (event === 'gate') racer.gate = Math.max(racer.gate, player.checkpoint);
       if (event === 'respawn') racer.falls++;
       if (event === 'out') racer.outMs = Math.floor(elapsedMs);
     }
@@ -40,7 +41,16 @@ export class LavaArenaRun extends ArenaRunBase<LavaStanding[]> {
     if (racer) racer.active = connected;
   }
 
-  protected finished(): boolean { return false; }
+  /** Decided early once every connected racer has been caught: the rest of the round is a cooldown. */
+  protected finished(): boolean {
+    let active = 0;
+    for (const racer of this.racers.values()) {
+      if (!racer.active) continue;
+      if (racer.outMs === null) return false;
+      active++;
+    }
+    return active > 0;
+  }
 
   protected ranking(): LavaStanding[] {
     return [...this.racers.values()]

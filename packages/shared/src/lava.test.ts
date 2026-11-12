@@ -106,6 +106,9 @@ test('touching lava respawns on a safe pad early, and eliminates in the closing 
   assert.equal(resolveLava(early, ROUND * 0.2, ROUND), 'respawn');
   assert.deepEqual([early.x, early.y, early.z], [...LAVA_PADS[0]!], 'floor flooded: carried to the T1 pad');
   assert.ok(early.shield > 0);
+  assert.equal(early.checkpoint, 1, 'respawns on the carried pad from now on');
+  settle(early);
+  assert.equal(resolveLava(early, ROUND * 0.2, ROUND), null, 'standing on a carried pad is not a climb');
 
   const climber = at(...LAVA_PADS[1]!);
   climber.checkpoint = 2;
