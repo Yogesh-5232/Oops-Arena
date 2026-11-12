@@ -1,6 +1,8 @@
 import { GREYBOX_ARENA, type Box } from './arena.js';
 import { MOVERS, type Mover } from './movers.js';
 import { step, type Input, type Player } from './movement.js';
+import { MAX_TICK_REWIND } from './timing.js';
+export { INPUT_BUFFER, MAX_TICK_REWIND, TICK_MS } from './timing.js';
 export { GREYBOX_ARENA, availableSpawn, type Box, type Checkpoint } from './arena.js';
 export { HALF_EXTENTS, overlaps, sweepAxis } from './collision.js';
 export { MOVERS, moverBox, moverCenter, moverKnocks, moverWarns, type Mover } from './movers.js';
@@ -8,13 +10,13 @@ export {
   MODE, MOVEMENT, NO_JUMP, resetToSpawn, spawnPlayer, step, type Input, type Player,
 } from './movement.js';
 export { DASH_BOXES, DASH_GATES, DASH_START_Z, dashSpawn, crossesDashGate, type DashStanding } from './dash.js';
-export { DODGE_BOXES, DODGE_MOVERS, dodgeHazards, dodgeSpawn, resolveDodgeHazards, type DodgeHazard } from './dodge.js';
+export { DODGE_BOXES, DODGE_MOVERS, DODGE_RULES, dodgeHazards, dodgeSpawn, resolveDodgeHazards, type DodgeHazard } from './dodge.js';
+export {
+  ARENAS, ARENA_BUILD, BUILD_RULES, PROTOCOL_VERSION, arenaManifest, buildId, type ArenaId, type ArenaManifest, type ArenaMarker,
+} from './manifests.js';
 export type { DodgeStanding, ShortPartyResults, ShortPartyStanding } from './short-party.js';
-export const TICK_MS = 1000 / 30;
 export const CAPACITY = GREYBOX_ARENA.spawns.length;
 export const PRESETS = { quick: 120, short: 315, standard: 540, full: 730 } as const;
-/** Inputs buffered per player before the oldest is dropped (about 270 ms at 30 Hz). */
-export const INPUT_BUFFER = 8;
 /**
  * Repairs an input in place so it is always legal: nonfinite axes become 0,
  * the direction is shortened to at most length 1, jump is strictly boolean and
@@ -53,11 +55,6 @@ export function simulateInput(
   step(player, repaired, dt, boxes, movers, spawn);
 }
 
-/**
- * How far behind the server's own tick an input's tick may be: about 500 ms,
- * enough for a 180 ms round trip plus a stall. Older ticks are moved forward.
- */
-export const MAX_TICK_REWIND = 15;
 /**
  * The tick the server simulates an input at: the client's stamp, but never in
  * the future, never more than MAX_TICK_REWIND behind, and never before the

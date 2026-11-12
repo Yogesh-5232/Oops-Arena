@@ -9,6 +9,7 @@
 // correction and smoothness numbers are measurements to record, not gates yet.
 import { strict as assert } from 'node:assert';
 import { Client } from '@colyseus/sdk';
+import { ARENA_BUILD } from '@chaos/shared';
 import { startLagProxy } from './lag-proxy.mjs';
 import { delay, drivePrediction, startBuiltServer, until } from './netcheck.mjs';
 
@@ -29,15 +30,15 @@ try {
   for (const profile of PROFILES) {
     const relay = await startLagProxy({ port: relayPort, targetPort: serverPort, ...profile });
     const client = new Client(`http://localhost:${relayPort}`);
-    const mover = await client.joinOrCreate('playground');
-    const watcher = await client.joinById(mover.roomId);
+    const mover = await client.joinOrCreate('playground', { build: ARENA_BUILD });
+    const watcher = await client.joinById(mover.roomId, { build: ARENA_BUILD });
     try {
       await until(() => [mover, watcher].every(room => room.state.players?.size === 2), 'both players replicated', 10000);
       await delay(500); // let the clocks measure the round trip
       const run = await drivePrediction(mover, FRAMES, watcher, { ackTimeout: 15000 });
       assert.deepEqual(run.predicted, run.server, `${profile.name}: prediction must settle exactly on the server state`);
       // The course (pusher hit, ferry ride, checkpoint, respawn) with a fresh player.
-      const rider = await client.joinById(mover.roomId);
+      const rider = await client.joinById(mover.roomId, { build: ARENA_BUILD });
       await until(() => rider.state.players?.size === 3, 'course player replicated', 10000);
       await delay(500);
       const ride = await drivePrediction(rider, 2400, watcher, { route: 'course', ackTimeout: 15000 });

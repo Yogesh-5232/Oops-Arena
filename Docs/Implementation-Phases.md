@@ -12,7 +12,7 @@ The phase order follows technical dependencies. Visual polish can progress withi
 | 1 | Reliable four-player greybox | Phase 0 | Complete. Four-player browser playtest reported complete |
 | 2 | Responsive networked controller | Phase 1 | Controller, lag measurements, world movement and movers implemented. Real-network playtest next |
 | 3 | Complete private Dash match | Phase 2 | Private Dash flow implemented. Physical browser acceptance pending |
-| 4 | Arena lifecycle and Dodge | Phase 3 | In progress — Short Party, seeded Dodge and combined standings implemented; browser and cleanup validation remain |
+| 4 | Arena lifecycle and Dodge | Phase 3 | Implemented — arena manifests, prefetch/disposal, build check and resync verified in SDK tests and a one-machine browser run. Multi-device and full-speed acceptance pending |
 | 5 | Public matchmaking and parties | Phase 4 | Planned |
 | 6 | Four-game MVP and all presets | Phase 5 | Planned |
 | 7 | Presentation and accessibility | Phase 6 | Planned |
@@ -107,6 +107,8 @@ The phase order follows technical dependencies. Visual polish can progress withi
 **Main risks.** Resource leaks, asset/collider drift and loading stalls consuming the round.
 
 **Progress.** The server has a reusable `ArenaRun` contract with Dash and Dodge adapters. The room owns the 315-second Short Party timeline, phase changes, roster, and finalization. State snapshots include the current arena, phase, round, remaining time, hazard seed/start tick, and cumulative leaderboard so reconnects can resume without restarting the match. Dodge uses a seeded six-second sequence of low sweepers and marked drop zones; both server authority and client prediction use the same hazard function. Placement points combine both rounds with tied placements sharing average-rank points. Physical browser, slow-load/reconnect, repeated-transition cleanup, and memory validation remain outstanding.
+
+**Lifecycle (2026-11-12).** Arenas are described by versioned manifests in `@chaos/shared` (`ARENAS`: plaza, dash, dodge), each with collision boxes, movers, floor markers, hazard family and spawns. Server arena runs and client prediction collide with the same manifest lists. `ARENA_BUILD` hashes the protocol version, every manifest and the shared rule data (`BUILD_RULES`). The server checks it in matchmaking (static `onAuth`, which runs before create and every join), and turns away a stale or missing build with a reload prompt. The room publishes `nextArenaId`, and the client keeps one PlayCanvas app with an `ArenaStage` holding the arena on screen plus the next one built hidden. A transition flips visibility, and every other tree is destroyed with its materials. Avatars share one material per color. On the server only the active arena run exists. Runs share one lifecycle base (`ArenaRunBase`) that registers them per owning room (`liveArenaRuns`); disposed runs refuse further updates, and the room releases both runs at their cutoffs, on completion and on dispose. Late-load rule: the server never waits for a client. A late or reloading client builds the current arena from its first snapshot (arena, phase, seed, start tick, standings) and joins the phase in progress. Movement is gated by phase, and stale input stamps are clamped to the rewind window. Remaining before marking Phase 4 complete: multi-device browser acceptance and one full-speed 315-second run. Asset (GLB) prefetch applies once arenas use loaded assets; today they are built from code.
 
 ## Phase 5 — Public matchmaking and parties
 

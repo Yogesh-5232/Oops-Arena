@@ -1,0 +1,122 @@
+import { GREYBOX_ARENA, type Box } from './arena.js';
+import { HALF_EXTENTS } from './collision.js';
+import { DASH_BOXES, DASH_GATES, DASH_START_Z, dashSpawn } from './dash.js';
+import { DODGE_BOXES, DODGE_MOVERS, DODGE_RULES, dodgeHazards, dodgeSpawn } from './dodge.js';
+import { MODE, MOVEMENT, NO_JUMP } from './movement.js';
+import { MOVERS, type Mover } from './movers.js';
+import { INPUT_BUFFER, MAX_TICK_REWIND, TICK_MS } from './timing.js';
+
+/**
+ * Bump when messages, room state or step code change in a way an older client
+ * cannot follow. Arena content and the rule data in BUILD_RULES are hashed into
+ * the build id automatically; logic changes inside functions are not.
+ */
+export const PROTOCOL_VERSION = 1;
+
+export type ArenaId = 'plaza' | 'dash' | 'dodge';
+type Vec3 = readonly [number, number, number];
+type Spawn = { x: number; y: number; z: number };
+
+/** A flat, non-solid floor decal (gate line or checkpoint pad). */
+export type ArenaMarker = { readonly id: string; readonly kind: 'gate' | 'checkpoint'; readonly min: Vec3; readonly max: Vec3 };
+
+/**
+ * Everything the server simulates and the client draws for one arena. The
+ * server collides with `boxes` and `movers`; the client renders the same lists,
+ * so geometry cannot drift between them within one build.
+ */
+export type ArenaManifest = {
+  readonly id: ArenaId;
+  /** Bump with any content or rule change for this arena. */
+  readonly version: number;
+  readonly name: string;
+  readonly boxes: readonly Box[];
+  readonly movers: readonly Mover[];
+  readonly markers: readonly ArenaMarker[];
+  /** Seeded per-match hazards drawn and resolved from the match seed. */
+  readonly hazards: 'none' | 'dodge';
+  /** Spawn for a slot; undefined means the player's own plaza spawn. */
+  readonly spawn?: (slot: number) => Spawn;
+};
+
+const checkpointMarkers: ArenaMarker[] = GREYBOX_ARENA.checkpoints.map(pad => ({
+  id: pad.id, kind: 'checkpoint', min: [pad.min[0], pad.min[1], pad.min[2]], max: [pad.max[0], pad.min[1] + 0.06, pad.max[2]],
+}));
+const gateMarkers: ArenaMarker[] = DASH_GATES.map((gate, index) => ({
+  id: `dash-gate-${index}`, kind: 'gate',
+  min: [gate.x - gate.halfWidth, 0.005, gate.z - 0.4], max: [gate.x + gate.halfWidth, 0.055, gate.z + 0.4],
+}));
+
+export const ARENAS = {
+  plaza: {
+    id: 'plaza', version: 1, name: 'Plaza',
+    boxes: GREYBOX_ARENA.boxes, movers: MOVERS, markers: checkpointMarkers, hazards: 'none',
+  },
+  dash: {
+    id: 'dash', version: 1, name: 'Ultimate Obstacle Dash',
+    boxes: DASH_BOXES, movers: MOVERS, markers: gateMarkers, hazards: 'none', spawn: dashSpawn,
+  },
+  dodge: {
+    id: 'dodge', version: 1, name: 'Dodge Everything',
+    boxes: DODGE_BOXES, movers: DODGE_MOVERS, markers: [], hazards: 'dodge', spawn: dodgeSpawn,
+  },
+} as const satisfies { readonly [Id in ArenaId]: ArenaManifest & { readonly id: Id } };
+
+/** The manifest for a replicated arena id. An empty id (state default) is the plaza. */
+export function arenaManifest(id: string): ArenaManifest {
+  return (ARENAS as Readonly<Record<string, ArenaManifest>>)[id || 'plaza'] ?? ARENAS.plaza;
+}
+
+/**
+ * Rule data both sides simulate with beyond the arena manifests: timing, the
+ * movement and collision constants, the whole plaza (spawns, checkpoint
+ * respawns, kill height), Dash gates and the Dodge hazard tunables. The Dodge
+ * schedule is also sampled over two waves for two seeds; it uses only exact
+ * IEEE arithmetic and Math.imul, so every engine produces the same numbers.
+ * Float-heavy step code (Math.hypot and friends) is deliberately not sampled:
+ * engines may differ in the last bit, which prediction tolerates but a hash
+ * would not.
+ */
+export const BUILD_RULES = {
+  timing: { TICK_MS, INPUT_BUFFER, MAX_TICK_REWIND },
+  movement: { MOVEMENT, MODE, NO_JUMP, HALF_EXTENTS },
+  plaza: GREYBOX_ARENA,
+  dash: { DASH_GATES, DASH_START_Z },
+  dodge: {
+    DODGE_RULES,
+    schedule: [1, 0x5eed].map(seed => Array.from(
+      { length: DODGE_RULES.waveTicks * 2 }, (_, tick) => dodgeHazards(seed, tick),
+    ).filter(hazards => hazards.length > 0)),
+  },
+};
+
+/** FNV-1a over a canonical JSON string: stable across Node and browsers. */
+function fnv1a(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/**
+ * Build identifier compared at admission. It covers the protocol version,
+ * every manifest's content (collision boxes, movers, markers, sample spawns)
+ * and BUILD_RULES, so a cached client with different arena or rule data is
+ * rejected rather than predicting against rules the server does not use.
+ */
+export function buildId(
+  arenas: Readonly<Record<string, ArenaManifest>> = ARENAS, protocol = PROTOCOL_VERSION, rules: unknown = BUILD_RULES,
+): string {
+  const content = Object.values(arenas)
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map(arena => ({
+      id: arena.id, version: arena.version, hazards: arena.hazards,
+      boxes: arena.boxes, movers: arena.movers, markers: arena.markers,
+      spawns: arena.spawn ? Array.from({ length: GREYBOX_ARENA.spawns.length }, (_, slot) => arena.spawn!(slot)) : null,
+    }));
+  return `p${protocol}-${fnv1a(JSON.stringify({ arenas: content, rules }))}`;
+}
+
+export const ARENA_BUILD = buildId();

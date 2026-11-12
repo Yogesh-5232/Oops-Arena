@@ -18,6 +18,8 @@ Earlier SDK acceptance covered the Quick Dash flow, invitation expiry, readiness
 
 Phase 4 now has a server-side `ArenaRun` contract, Dash and Dodge adapters, deterministic seeded hazard families, a recoverable Short Party clock, arena transitions, and a combined placement leaderboard. `PrivateDash` still owns authoritative phases, deadlines, results, and roster rules. Browser resynchronization, physical acceptance, repeated cleanup, and Phase 4 exit criteria remain open. After merging into `main` with the Phase 2 controller fixes, `npm run check` (35 unit tests and production builds), `npm run smoke` and the 10%-speed `npm run smoke:private` Short Party run passed on Node 24.22.2. That is SDK-level evidence only; browser acceptance is still open.
 
+The Phase 4 lifecycle work is implemented on branch `phase-4-lifecycle`: versioned arena manifests with an admission build check, next-arena prefetch, disposal of obsolete arena trees and materials, a single live server arena run, and a defined late-load rule. A one-machine browser run (one tab plus three SDK bots, 10% clock) showed identical entity and material totals in the lobby before and after two full matches (36 entities, 14 materials with four avatars). A reload mid-Dodge rejoined the running round without pausing others. Multi-device acceptance and a full-speed run remain.
+
 ## Decisions to validate
 
 | Decision | Options and trade-off | Preferred next step | Gate |

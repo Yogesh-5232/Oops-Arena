@@ -1,53 +1,26 @@
-import { DASH_BOXES, MOVERS, dashSpawn, type DashStanding, type Player } from '@chaos/shared';
+import { ARENAS, type DashStanding, type Player } from '@chaos/shared';
 import { DashRace } from './dash-race.js';
-import type { ArenaPosition, ArenaRun, ArenaSetup, ArenaSpawn } from './arena-run.js';
+import { ArenaRunBase, type ArenaPosition, type ArenaSetup } from './arena-run.js';
 
 /** Dash-specific setup, authoritative progress recording, ranking, and cleanup. */
-export class DashArenaRun implements ArenaRun<DashStanding[]> {
-  readonly collisionBoxes = DASH_BOXES;
-  readonly movers = MOVERS;
+export class DashArenaRun extends ArenaRunBase<DashStanding[]> {
+  readonly manifest = ARENAS.dash;
   private race?: DashRace;
-  private lifecycle: 'new' | 'active' | 'disposed' = 'new';
 
-  setup(context: ArenaSetup): void {
-    if (this.lifecycle !== 'new') throw new Error('Dash arena run can only be set up once');
+  protected onSetup(context: ArenaSetup): void {
     this.race = new DashRace(context.roster, context.name);
-    this.lifecycle = 'active';
   }
 
-  spawn(slot: number): ArenaSpawn {
-    this.assertActive();
-    return dashSpawn(slot);
-  }
-
-  /** Dash has no additional per-tick world state beyond the shared simulation. */
-  update(_serverTick: number, _now: number): void {
-    this.assertActive();
-  }
-
-  playerStep(id: string, before: ArenaPosition, after: Player, elapsedMs: number, _worldTick: number): number {
-    this.assertActive();
+  protected onPlayerStep(id: string, before: ArenaPosition, after: Player, elapsedMs: number): number {
     return this.race!.record(id, before, after, elapsedMs);
   }
 
-  get allFinished(): boolean {
-    this.assertActive();
-    return this.race!.allFinished;
-  }
+  protected finished(): boolean { return this.race!.allFinished; }
 
-  rank(): DashStanding[] {
-    this.assertActive();
-    return this.race!.standings();
-  }
+  protected ranking(): DashStanding[] { return this.race!.standings(); }
 
-  dispose(): void {
-    if (this.lifecycle === 'disposed') return;
+  protected onDispose(): void {
     this.race?.dispose();
     this.race = undefined;
-    this.lifecycle = 'disposed';
-  }
-
-  private assertActive(): void {
-    if (this.lifecycle !== 'active' || !this.race) throw new Error('Dash arena run is not active');
   }
 }

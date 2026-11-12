@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { Client } from '@colyseus/sdk';
-import { INPUT_BUFFER } from '@chaos/shared';
+import { ARENA_BUILD, INPUT_BUFFER } from '@chaos/shared';
 import { delay, drivePrediction, startBuiltServer, until } from './netcheck.mjs';
 
 const STEP_DISTANCE = 6 / 30; // speed 6 units/s at 30 Hz
@@ -22,9 +22,9 @@ async function leave(room) {
 }
 try {
   for (let cycle = 0; cycle < 3; cycle++) {
-    const observer = await track(client.create('playground'));
+    const observer = await track(client.create('playground', { build: ARENA_BUILD }));
     const peers = [];
-    for (let i = 0; i < 3; i++) peers.push(await track(client.joinById(observer.roomId)));
+    for (let i = 0; i < 3; i++) peers.push(await track(client.joinById(observer.roomId, { build: ARENA_BUILD })));
     await until(() => [...rooms].every(room => room.state.players?.size === 4), 'four replicated seats');
     const player = () => observer.state.players.get(observer.sessionId);
     const input = observer.input({ mode: 'reliable' });
@@ -128,7 +128,7 @@ try {
         assert.ok(observer.state.players.has(sessionId), 'dropped seat must be reserved');
         await until(() => !observer.state.players.has(sessionId), 'grace expiry', 35000);
         await assert.rejects(() => client.reconnect(token), 'expired token must be rejected');
-        await track(client.joinById(observer.roomId));
+        await track(client.joinById(observer.roomId, { build: ARENA_BUILD }));
       } else {
         const recovered = await track(client.reconnect(token));
         assert.equal(recovered.sessionId, sessionId, 'reload token must recover the original identity');
@@ -142,18 +142,18 @@ try {
     const oldSpawn = position(observer.state.players.get(departed.sessionId));
     await leave(departed);
     await until(() => observer.state.players.size === 3, 'departure replication');
-    const replacement = await track(client.joinById(observer.roomId));
+    const replacement = await track(client.joinById(observer.roomId, { build: ARENA_BUILD }));
     await until(() => observer.state.players.has(replacement.sessionId), 'replacement replication');
     assert.deepEqual(position(observer.state.players.get(replacement.sessionId)), oldSpawn);
-    while (rooms.size < 12) await track(client.joinById(observer.roomId));
+    while (rooms.size < 12) await track(client.joinById(observer.roomId, { build: ARENA_BUILD }));
     await until(() => [...rooms].every(room => room.state.players?.size === 12), 'twelve replicated seats');
-    await assert.rejects(() => track(client.joinById(observer.roomId)), '13th seat must be rejected');
+    await assert.rejects(() => track(client.joinById(observer.roomId, { build: ARENA_BUILD })), '13th seat must be rejected');
     const positions = [...observer.state.players.values()].map(p => `${p.x},${p.z}`);
     assert.equal(new Set(positions).size, 12, 'spawn positions must be distinct');
     const oldRoomId = observer.roomId;
     for (const room of [...rooms]) await leave(room);
     await delay(150);
-    await assert.rejects(() => track(client.joinById(oldRoomId)), 'empty room must be disposed');
+    await assert.rejects(() => track(client.joinById(oldRoomId, { build: ARENA_BUILD })), 'empty room must be disposed');
   }
   console.log('PASS: numbered movement/jump, idle, malformed and flooded input, prediction agreement, smooth remote avatars, pusher/ferry/checkpoint course, automatic and token reconnect, grace expiry, vacant spawn reuse, 12-seat cap, and room disposal');
 } finally {
