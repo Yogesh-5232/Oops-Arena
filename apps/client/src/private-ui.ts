@@ -2,7 +2,7 @@ import { ARENAS, DASH_GATES, LAVA_GATES, PLAYLISTS, type PartyResults, type Pres
 
 type Guest = { name: string; ready: boolean; connected: boolean; racing: boolean; progress: number };
 export type PrivateState = {
-  code: string; codeExpiresAt: number; phase: string; hostId: string; capacity: number;
+  code: string; codeExpiresAt: number; phase: string; hostId: string; capacity: number; party: boolean;
   arenaId: string; roundIndex: number; preset: string;
   remainingMs: number; standings: string;
   guests: { get(id: string): Guest | undefined; forEach(visit: (guest: Guest, id: string) => void): void };
@@ -10,10 +10,12 @@ export type PrivateState = {
 
 export const privateEntry = document.querySelector<HTMLFormElement>('#private-entry')!;
 export const createButton = document.querySelector<HTMLButtonElement>('#create-private')!;
+export const createPartyButton = document.querySelector<HTMLButtonElement>('#create-party')!;
 export const joinCode = document.querySelector<HTMLInputElement>('#room-code')!;
 export const capacity = document.querySelector<HTMLInputElement>('#capacity')!;
 const panel = document.querySelector<HTMLElement>('#private-room')!;
 const codeLabel = document.querySelector<HTMLElement>('#room-invite')!;
+const renewButton = document.querySelector<HTMLButtonElement>('#renew-invite')!;
 const phaseLabel = document.querySelector<HTMLElement>('#match-phase')!;
 const guests = document.querySelector<HTMLElement>('#guests')!;
 const readyButton = document.querySelector<HTMLButtonElement>('#ready')!;
@@ -38,7 +40,8 @@ function roundLine(arenaId: string, time: number, progress: number): string {
   return `${name} · ${time}s · ${Math.min(checkpoints, progress)}/${checkpoints} checkpoints`;
 }
 
-export function privatePanel(ready: (value: boolean) => void, start: () => void, choosePreset: (value: string) => void) {
+export function privatePanel(ready: (value: boolean) => void, start: () => void, choosePreset: (value: string) => void,
+  renew: () => void) {
   let lastGuests = '';
   let lastStandings = '';
   let lastPhase = '';
@@ -47,10 +50,11 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void,
   panel.hidden = false;
   startButton.onclick = start;
   presetPicker.onchange = () => choosePreset(presetPicker.value);
+  renewButton.onclick = renew;
   return {
     setConnected(connected: boolean) {
       canAct = connected;
-      if (!connected) readyButton.disabled = startButton.disabled = true;
+      if (!connected) readyButton.disabled = startButton.disabled = renewButton.disabled = true;
     },
     render(state: PrivateState, sessionId: string) {
       if (!state.code) return;
@@ -61,8 +65,11 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void,
         document.exitPointerLock();
       }
       lastPhase = state.phase;
-      codeLabel.textContent = Date.now() >= state.codeExpiresAt
-        ? `Room ${state.code} · invite expired` : `Room code: ${state.code}`;
+      const inviteExpired = Date.now() >= state.codeExpiresAt;
+      const host = sessionId === state.hostId;
+      codeLabel.textContent = `${state.party ? 'Group party' : 'Room'} code: ${state.code}${inviteExpired ? ' · invite expired' : ''}`;
+      renewButton.hidden = !(state.party && lobby && host && inviteExpired);
+      renewButton.disabled = !canAct || !me?.connected;
       let readyCount = 0;
       const rows: string[] = [];
       state.guests.forEach((guest, id) => {
@@ -82,15 +89,15 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void,
       guests.hidden = !lobby;
       const playlist = playlistOf(state.preset);
       const round = `Round ${state.roundIndex + 1}/${playlist.rounds.length}`;
+      const requiredReady = state.party ? Math.max(4, rows.length) : 4;
       phaseLabel.textContent = lobby
-        ? `Plaza · ${playlist.name} · ${rows.length}/${state.capacity} guests · ${readyCount} ready (4 needed)`
+        ? `${state.party ? 'Group party' : 'Plaza'} · ${playlist.name} · ${rows.length}/${state.capacity} guests · ${readyCount} ready (${requiredReady} needed)`
         : state.phase === 'countdown' ? `${playlist.name} starts in ${time}s · ${arenaName(playlist.rounds[0])}`
         : state.phase === 'transition' ? `${round} · ${arenaName(playlist.rounds[state.roundIndex])} begins in ${time}s`
         : state.phase === 'results' ? `Final results · returning to plaza in ${time}s`
         : !me?.racing ? `Waiting for the party · ${time}s left`
         : state.phase === 'cooldown' ? `${arenaName(state.arenaId)} standings locked · ${time}s left`
         : roundLine(state.arenaId, time, me.progress);
-      const host = sessionId === state.hostId;
       presetLabel.hidden = !lobby;
       presetPicker.disabled = !canAct || !host;
       // Follow the server only when its preset changes, so the host's pick is not undone by patches sent before the server applied it.
@@ -101,7 +108,7 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void,
       readyButton.onclick = () => ready(!me?.ready);
       startButton.hidden = !lobby || !host;
       startButton.textContent = `Start ${playlist.name}`;
-      startButton.disabled = !canAct || !me?.ready || readyCount < 4;
+      startButton.disabled = !canAct || !me?.ready || readyCount < requiredReady;
       results.hidden = !state.standings || !(state.phase === 'transition' || state.phase === 'results' || lobby);
       resultsTitle.textContent = state.phase === 'results' ? `${playlist.name} results`
         : lobby ? 'Last party results' : `Standings after ${arenaName(playlist.rounds[state.roundIndex - 1])}`;
@@ -120,7 +127,7 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void,
     },
     dispose() {
       panel.hidden = true;
-      readyButton.onclick = startButton.onclick = null;
+      readyButton.onclick = startButton.onclick = renewButton.onclick = null;
       presetPicker.onchange = null;
     },
   };

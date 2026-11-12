@@ -6,7 +6,7 @@ import {
 } from '@chaos/shared';
 import { ArenaStage } from './arena-stage.js';
 import { ArenaView, createMaterial, materialCount, solid } from './arena-view.js';
-import { capacity, createButton, joinCode, privateEntry, privatePanel } from './private-ui.js';
+import { capacity, createButton, createPartyButton, joinCode, privateEntry, privatePanel } from './private-ui.js';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!;
@@ -104,16 +104,18 @@ function followCamera(x: number, y: number, z: number) {
 const REMOTE_DELAY_MS = 100;
 /** A jump bigger than this between updates is a teleport (respawn), drawn as a cut, not a glide. */
 const TELEPORT_DISTANCE = 3;
-async function connect(action: 'playground' | 'create' | 'join') {
+async function connect(action: 'playground' | 'create' | 'create-party' | 'join') {
   if (button.disabled) return;
   button.disabled = true;
-  createButton.disabled = true;
+  createButton.disabled = createPartyButton.disabled = true;
   status.textContent = 'Connecting…';
   try {
     const client = new Client(endpoint);
     const token = sessionStorage.getItem(reconnectKey);
     const room = token ? await client.reconnect(token)
-      : action === 'create' ? await client.create('private-dash', { capacity: Number(capacity.value), build: ARENA_BUILD })
+      : action === 'create' || action === 'create-party' ? await client.create('private-dash', {
+        capacity: Number(capacity.value), party: action === 'create-party', build: ARENA_BUILD,
+      })
       : action === 'join' ? await client.joinById(joinCode.value.trim().toUpperCase(), { build: ARENA_BUILD })
       : await client.joinOrCreate('playground', { build: ARENA_BUILD });
     const isPrivate = room.name === 'private-dash';
@@ -136,6 +138,7 @@ async function connect(action: 'playground' | 'create' | 'join') {
       value => room.sendUnreliable('ready', value),
       () => room.sendUnreliable('start'),
       value => room.sendUnreliable('preset', value),
+      () => room.sendUnreliable('renew-invite'),
     ) : undefined;
     const canMove = () => !isPrivate || room.state.phase === 'lobby' ||
       ((room.state.phase === 'round' || room.state.phase === 'cooldown') &&
@@ -388,7 +391,7 @@ async function connect(action: 'playground' | 'create' | 'join') {
       status.textContent = isPrivate && code !== 4000
         ? 'Connection lost. Your private session was interrupted.' : 'Ready to play';
       button.hidden = false; button.disabled = false;
-      privateEntry.hidden = false; createButton.disabled = false;
+      privateEntry.hidden = false; createButton.disabled = createPartyButton.disabled = false;
     });
   } catch (error) {
     const expired = sessionStorage.getItem(reconnectKey) !== null;
@@ -399,11 +402,12 @@ async function connect(action: 'playground' | 'create' | 'join') {
       : 'Could not recover your seat. Join again to continue.'
       : error instanceof Error ? error.message : 'Connection failed';
     button.disabled = false;
-    createButton.disabled = false;
+    createButton.disabled = createPartyButton.disabled = false;
   }
 }
 button.onclick = () => { void connect('playground'); };
 createButton.onclick = () => { if (capacity.reportValidity()) void connect('create'); };
+createPartyButton.onclick = () => { if (capacity.reportValidity()) void connect('create-party'); };
 privateEntry.onsubmit = event => {
   event.preventDefault();
   if (joinCode.reportValidity()) void connect('join');
