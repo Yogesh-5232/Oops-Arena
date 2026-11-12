@@ -1,20 +1,20 @@
 import { CAPACITY } from '@chaos/shared';
 
-const MIN_PLAYERS = 4;
+const MIN_CAPACITY = 4;
 type Seat = { connected: boolean; ready: boolean };
 
 /** Room admission and readiness rules, keyed by the server-issued session ID. */
 export class PrivateLobby {
   private readonly seats = new Map<string, Seat>();
   private roster?: readonly string[];
+  readonly minimumReady = 2;
 
   constructor(
     readonly capacity = CAPACITY,
     private readonly keepPartyTogether = false,
-    readonly minimumReady = MIN_PLAYERS,
   ) {
-    if (!Number.isInteger(capacity) || capacity < MIN_PLAYERS || capacity > CAPACITY) {
-      throw new RangeError(`Capacity must be between ${MIN_PLAYERS} and ${CAPACITY}`);
+    if (!Number.isInteger(capacity) || capacity < MIN_CAPACITY || capacity > CAPACITY) {
+      throw new RangeError(`Capacity must be between ${MIN_CAPACITY} and ${CAPACITY}`);
     }
   }
 

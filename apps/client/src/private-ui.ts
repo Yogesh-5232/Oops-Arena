@@ -138,8 +138,9 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void,
       if (result.interrupted && (state.phase === 'results' || lobby)) resultsTitle.textContent = `${playlistOf(result.preset).name} interrupted`;
       for (const row of result.rows) {
         const entry = document.createElement('li');
+        entry.value = row.place;
         const rounds = row.rounds.map((round, index) => round?.summary ?? `${SHORT_NAMES[result.arenas[index]!] ?? 'Round'} pending`);
-        entry.textContent = `${row.place}. ${row.name} — ${row.totalPoints} pts (${rounds.join(', ')})`;
+        entry.textContent = `${row.name} — ${row.totalPoints} pts (${rounds.join(', ')})`;
         standings.append(entry);
       }
     },

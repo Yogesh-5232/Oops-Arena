@@ -14,9 +14,7 @@ test('a dropped host retains a seat during grace and the next player takes over 
   assert.equal(lobby.lockRoster('a'), undefined);
   lobby.release('a');
   assert.equal(lobby.hostId, 'b');
-  assert.equal(lobby.lockRoster('b'), undefined);
   assert.equal(lobby.admit('e'), true);
-  assert.equal(lobby.lockRoster('b'), undefined);
   lobby.setReady('e', true);
   assert.equal(lobby.lockRoster('c'), undefined);
   const roster = lobby.lockRoster('b');
@@ -24,6 +22,22 @@ test('a dropped host retains a seat during grace and the next player takes over 
   lobby.release('d');
   assert.equal(lobby.admit('f'), false);
   assert.deepEqual(roster, ['b', 'c', 'd', 'e']);
+});
+
+test('two connected ready players can start either kind of private lobby', () => {
+  for (const party of [false, true]) {
+    const lobby = new PrivateLobby(4, party);
+    assert.ok(lobby.admit('host'));
+    assert.ok(lobby.setReady('host', true));
+    assert.equal(lobby.lockRoster('host'), undefined);
+    assert.ok(lobby.admit('guest'));
+    assert.ok(lobby.setReady('guest', true));
+    lobby.setConnected('guest', false);
+    assert.equal(lobby.lockRoster('host'), undefined);
+    lobby.setConnected('guest', true);
+    assert.ok(lobby.setReady('guest', true));
+    assert.deepEqual(lobby.lockRoster('host'), ['host', 'guest']);
+  }
 });
 
 test('four ready players can race while an unready guest waits and the same group can rematch', () => {

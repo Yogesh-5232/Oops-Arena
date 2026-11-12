@@ -7,7 +7,7 @@ export { GREYBOX_ARENA, availableSpawn, type Box, type Checkpoint } from './aren
 export { HALF_EXTENTS, overlaps, sweepAxis } from './collision.js';
 export { MOVERS, moverBox, moverCenter, moverKnocks, moverWarns, type Mover } from './movers.js';
 export {
-  MODE, MOVEMENT, NO_JUMP, resetToSpawn, spawnPlayer, step, type Input, type Player,
+  MODE, MOVEMENT, NO_JUMP, playerAtMoverTick, resetToSpawn, spawnPlayer, step, type Input, type Player,
 } from './movement.js';
 export { DASH_BOXES, DASH_GATES, DASH_START_Z, dashSpawn, crossesDashGate, type DashStanding } from './dash.js';
 export {
@@ -60,13 +60,14 @@ const repaired: Input = { x: 0, z: 0, jump: false, tick: 0 };
 export function simulateInput(
   player: Player, command: Input, dt: number, boxes: readonly Box[] = GREYBOX_ARENA.boxes,
   spawn?: Pick<Player, 'x' | 'y' | 'z'>, tick = command.tick, movers: readonly Mover[] = MOVERS,
+  peers: readonly Player[] = [],
 ): void {
   repaired.x = command.x;
   repaired.z = command.z;
   repaired.jump = command.jump;
   repaired.tick = tick;
   sanitizeInput(repaired);
-  step(player, repaired, dt, boxes, movers, spawn);
+  step(player, repaired, dt, boxes, movers, spawn, peers);
 }
 
 /**

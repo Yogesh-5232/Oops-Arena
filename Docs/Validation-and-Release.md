@@ -75,7 +75,7 @@ Use the LAN setup and at least four browser clients on separate devices. Record 
 
 The pre-Phase 4 Quick Dash lifecycle remains the implementation baseline for the first Short Party round:
 
-1. In the lobby, the first guest is host. The host can lock a roster of at least four connected, ready guests. The roster is fixed for the match; other guests wait for the next race and new admission is closed.
+1. In the lobby, the first guest is host. The host can lock a roster of at least two connected, ready guests. The roster is fixed for the match; other guests wait for the next race and new admission is closed.
 2. The server resets the roster and starts a 5-second countdown. The shared movement simulation runs with Dash course collision during the round.
 3. The server accepts checkpoint and finish scoring only in order and only from the locked roster. The race allows 105 seconds of scoring. An early all-finish or interruption locks standings; otherwise standings are finalized at the scoring cutoff.
 4. The match has a fixed 120-second deadline from start. It shows the results phase for the final 10 seconds, then discards active race state, resets avatars and readiness, reopens the lobby, and unlocks admission. The standings remain visible in the lobby until the next race starts.
@@ -115,7 +115,7 @@ Still open, with four or more people on separate devices at full speed:
 
 | Area | Required scenarios | Acceptance |
 |---|---|---|
-| Seats | 1/2/4/12 joins, 13th join, concurrent reservation, repeated leave/rejoin | No overflow or duplicate identity; production start requires 4 ready players |
+| Seats | 1/2/4/12 joins, 13th join, concurrent reservation, repeated leave/rejoin | No overflow or duplicate identity; private matches require at least 2 ready players |
 | Input | Nonfinite values, malformed messages, excess rate, stale command, lost focus | Rejected or bounded input; no additional simulation time |
 | Movement | Floor, wall, corner, jump, platform, hazard, checkpoint, respawn | Authoritative outcomes agree and corrections remain playable |
 | Reconnect | Short outage, reload, grace expiry, intentional leave, process crash | Correct seat recovery or clear interruption; stale input cleared |

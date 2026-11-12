@@ -21,13 +21,27 @@ export function destroyMaterial(material: pc.StandardMaterial): void {
   liveMaterials--;
 }
 
-export function solid(name: string, material: pc.StandardMaterial, scale: pc.Vec3, parent: pc.Entity): pc.Entity {
+export function solid(name: string, material: pc.Material, scale: pc.Vec3, parent: pc.Entity): pc.Entity {
   const entity = new pc.Entity(name);
   entity.addComponent('render', { type: 'box', material });
   entity.setLocalScale(scale);
   parent.addChild(entity);
   return entity;
 }
+
+// PlayCanvas box UV1 packs each face in a 3-by-3 atlas with 1/8 tile padding.
+// Convert each face back to unit UVs and draw an antialiased border inside its edges.
+const BOX_EDGE_OUTPUT = `
+  vec2 faceUv = (fract(vUv1 * 3.0) - 0.125) / 0.75;
+  vec2 edgeDistance = min(faceUv, 1.0 - faceUv);
+  vec2 dx = dFdx(faceUv);
+  vec2 dy = dFdy(faceUv);
+  vec2 pixel = max(sqrt(dx * dx + dy * dy), vec2(0.00001));
+  vec2 width = min(1.8 * pixel, vec2(0.18));
+  vec2 interior = smoothstep(max(width - 0.5 * pixel, vec2(0.0)), width + 0.5 * pixel, edgeDistance);
+  float edge = 1.0 - min(interior.x, interior.y);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.075, 0.085, 0.12), edge * 0.94);
+`;
 
 const BOX_COLORS = {
   floor: new pc.Color(0.4, 0.7, 0.45),
@@ -199,6 +213,12 @@ export class ArenaView implements StageView {
   }
 
   private own(material: pc.StandardMaterial): pc.StandardMaterial {
+    material.onUpdateShader = options => {
+      options.forceUv1 = true;
+      return options;
+    };
+    material.shaderChunks.glsl.set('outputPS', BOX_EDGE_OUTPUT);
+    material.update();
     this.materials.push(material);
     return material;
   }

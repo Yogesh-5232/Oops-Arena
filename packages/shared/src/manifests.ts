@@ -13,7 +13,7 @@ import { INPUT_BUFFER, MAX_TICK_REWIND, TICK_MS } from './timing.js';
  * cannot follow. Arena content and the rule data in BUILD_RULES are hashed into
  * the build id automatically; logic changes inside functions are not.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 export type ArenaId = 'plaza' | 'dash' | 'dodge' | 'lava' | 'team' | 'finale';
 type Vec3 = readonly [number, number, number];
