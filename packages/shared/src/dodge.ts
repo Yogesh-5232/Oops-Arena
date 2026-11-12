@@ -15,11 +15,22 @@ export type DodgeHazard = {
   max: readonly [number, number, number];
 };
 
-const WAVE_TICKS = 180;
-const WARNING_START = 60;
-const ACTIVE_START = 105;
-const ACTIVE_END = 165;
-const PLAYER_HALF = [0.5, 1, 0.5] as const;
+/**
+ * Every tunable the Dodge hazard step uses, in one object so the build id
+ * covers them (see buildId in manifests.ts).
+ */
+export const DODGE_RULES = {
+  waveTicks: 180,
+  warningStart: 60,
+  activeStart: 105,
+  activeEnd: 165,
+  playerHalf: [0.5, 1, 0.5],
+  /** Knockback as a fraction of the shared MOVEMENT knock speed and lift. */
+  knockScale: 0.8,
+  liftScale: 0.65,
+} as const;
+const { waveTicks: WAVE_TICKS, warningStart: WARNING_START, activeStart: ACTIVE_START, activeEnd: ACTIVE_END } = DODGE_RULES;
+const PLAYER_HALF = DODGE_RULES.playerHalf;
 
 export function dodgeSpawn(slot: number) {
   return { x: (slot % 4) * 5 - 7.5, y: 1, z: Math.floor(slot / 4) * 5 - 5 };
@@ -125,9 +136,9 @@ export function resolveDodgeHazards(
     dz = direction === 2 ? 1 : direction === 3 ? -1 : 0;
     length = 1;
   }
-  player.vx = dx / length * MOVEMENT.knockSpeed * 0.8;
-  player.vz = dz / length * MOVEMENT.knockSpeed * 0.8;
-  player.vy = MOVEMENT.knockLift * 0.65;
+  player.vx = dx / length * MOVEMENT.knockSpeed * DODGE_RULES.knockScale;
+  player.vz = dz / length * MOVEMENT.knockSpeed * DODGE_RULES.knockScale;
+  player.vy = MOVEMENT.knockLift * DODGE_RULES.liftScale;
   player.mode = MODE.stunned;
   player.modeTicks = 0;
   player.shield = MOVEMENT.shieldTicks;

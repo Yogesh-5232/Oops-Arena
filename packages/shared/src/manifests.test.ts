@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import {
-  ARENAS, ARENA_BUILD, DASH_BOXES, DASH_GATES, DODGE_BOXES, GREYBOX_ARENA, MOVERS, PROTOCOL_VERSION, arenaManifest, buildId,
+  ARENAS, ARENA_BUILD, BUILD_RULES, DASH_BOXES, DODGE_RULES, MOVEMENT, DASH_GATES, DODGE_BOXES, GREYBOX_ARENA, MOVERS, PROTOCOL_VERSION, arenaManifest, buildId,
   type ArenaManifest,
 } from './index.js';
 
@@ -37,4 +37,22 @@ test('build id is deterministic and changes with protocol or any arena content',
   assert.notEqual(buildId({ ...ARENAS, dash: moved }), ARENA_BUILD, 'a moved collision box must change the build');
   assert.notEqual(buildId({ ...ARENAS, dodge: { ...ARENAS.dodge, version: 2 } }), ARENA_BUILD);
   assert.notEqual(buildId({ ...ARENAS, dodge: { ...ARENAS.dodge, spawn: slot => ({ x: slot, y: 1, z: 0 }) } }), ARENA_BUILD);
+});
+
+test('build id changes with rule data outside the manifests', () => {
+  const variants: unknown[] = [
+    { ...BUILD_RULES, movement: { ...BUILD_RULES.movement, MOVEMENT: { ...MOVEMENT, jumpSpeed: MOVEMENT.jumpSpeed + 0.1 } } },
+    { ...BUILD_RULES, dodge: { ...BUILD_RULES.dodge, DODGE_RULES: { ...DODGE_RULES, waveTicks: DODGE_RULES.waveTicks + 1 } } },
+    { ...BUILD_RULES, plaza: { ...GREYBOX_ARENA, killY: GREYBOX_ARENA.killY - 1 } },
+    {
+      ...BUILD_RULES,
+      plaza: {
+        ...GREYBOX_ARENA,
+        checkpoints: GREYBOX_ARENA.checkpoints.map((pad, index) => index === 0 ? { ...pad, respawn: [0, 1, 12] } : pad),
+      },
+    },
+    { ...BUILD_RULES, timing: { ...BUILD_RULES.timing, MAX_TICK_REWIND: 16 } },
+  ];
+  for (const rules of variants) assert.notEqual(buildId(ARENAS, PROTOCOL_VERSION, rules), ARENA_BUILD);
+  assert.ok(BUILD_RULES.dodge.schedule.every(wave => wave.length > 0), 'the sampled Dodge schedule must contain hazards');
 });

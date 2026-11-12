@@ -35,12 +35,15 @@ export class ArenaStage<View extends StageView> {
     return view;
   }
 
-  /** Builds `id` hidden ahead of time. An empty id, or the current arena, needs nothing. */
+  /**
+   * Declares the next arena: builds `id` hidden ahead of time. An empty id means
+   * nothing is next and releases any queued tree; the current arena needs nothing.
+   */
   prefetch(id: string): void {
-    if (!id || id === this.shown?.id || id === this.queued?.id) return;
+    if (id === this.queued?.id || (id && id === this.shown?.id)) return;
     this.queued?.destroy();
-    this.queued = this.build(id);
-    this.queued.setVisible(false);
+    this.queued = id ? this.build(id) : undefined;
+    this.queued?.setVisible(false);
   }
 
   dispose(): void {

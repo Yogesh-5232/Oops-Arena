@@ -30,8 +30,12 @@ test('a prefetched arena is reused on transition and hidden until then', () => {
   assert.equal(stage.next, undefined);
   assert.equal(live.size, 1, 'the previous arena must be destroyed');
   stage.prefetch('dash');
+  assert.equal(built(), 2, 'the current arena needs nothing');
+  stage.prefetch('dodge');
+  assert.equal(live.size, 2);
   stage.prefetch('');
-  assert.equal(built(), 2, 'the current arena and an empty id need nothing');
+  assert.equal(stage.next, undefined, 'an empty id means nothing is next');
+  assert.equal(live.size, 1, 'clearing the next arena must release its tree');
 });
 
 test('repeated Short Party transitions keep at most two trees and return to baseline', () => {

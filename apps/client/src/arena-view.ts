@@ -113,8 +113,11 @@ export class ArenaView implements StageView {
       const hazard = live[index];
       entity.enabled = Boolean(hazard);
       if (!hazard) return;
-      entity.setLocalScale(this.size(hazard.min, hazard.max));
-      entity.setPosition(...this.center(hazard.min, hazard.max));
+      // Plain numbers: this runs every frame, so it allocates nothing.
+      const [x0, y0, z0] = hazard.min;
+      const [x1, y1, z1] = hazard.max;
+      entity.setLocalScale(x1 - x0, y1 - y0, z1 - z0);
+      entity.setPosition((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
       const warning = hazard.phase === 'warning';
       tint(material, warning ? WARNING_COLOR : DODGE_ACTIVE, warning ? WARNING_GLOW : DODGE_GLOW);
     });

@@ -8,7 +8,7 @@ import {
 } from '@chaos/shared';
 import { DashArenaRun } from './dash-arena.js';
 import { DodgeArenaRun } from './dodge-arena.js';
-import { LIVE_ARENA_RUNS, type ArenaRun } from './arena-run.js';
+import { liveArenaRuns, type ArenaRun } from './arena-run.js';
 import { PrivateLobby } from './private-lobby.js';
 import { ShortPartyClock } from './short-party-clock.js';
 import { ShortScoreboard } from './short-scoreboard.js';
@@ -40,7 +40,9 @@ const MoveInput = schema({ x: t.float64(), z: t.float64(), jump: t.boolean(), ti
  * Admission check: a client built from different shared code (protocol or
  * arena manifests) would predict against rules the server does not run, so it
  * is turned away with a reload prompt instead of joining and rubber-banding.
- * Reconnects reuse an admitted seat within the same server process and skip it.
+ * It runs in matchmaking (static onAuth), which Colyseus calls before create,
+ * join, joinById and joinOrCreate. Reconnects reuse an admitted seat within
+ * the same server process and skip it.
  */
 function checkBuild(options: unknown): void {
   const build = (options as { build?: unknown } | undefined)?.build;
@@ -100,8 +102,7 @@ class Playground extends Room {
     checkBuild(options);
     return true;
   }
-  onCreate(options?: unknown) {
-    checkBuild(options);
+  onCreate() {
     let tickMs = 0;
     let inputBacklog = 0;
     // Room totals: player-ticks spent waiting for a late input, player-ticks
@@ -114,7 +115,8 @@ class Playground extends Room {
         seats: this.state.players.size, connected: this.clients.length, tickMs, inputBacklog,
         inputAgeMs: this.inputAges?.get(client.sessionId) ?? null,
         waitedTicks, idleTicks, catchUps,
-        build: ARENA_BUILD, arenaRuns: LIVE_ARENA_RUNS.size, heapUsed: process.memoryUsage().heapUsed,
+        build: ARENA_BUILD, arenaRuns: liveArenaRuns(this.roomId), processArenaRuns: liveArenaRuns(),
+        heapUsed: process.memoryUsage().heapUsed,
       }));
     }
     this.setPatchRate(50);
@@ -226,8 +228,7 @@ class PrivateDash extends Playground {
     interrupted: boolean;
   };
 
-  override async onCreate(options: { capacity?: number; build?: string } = {}) {
-    checkBuild(options);
+  override async onCreate(options: { capacity?: number } = {}) {
     try { this.lobby = new PrivateLobby(options.capacity ?? CAPACITY); }
     catch { throw new ServerError(400, 'Capacity must be a whole number from 4 to 12.'); }
     this.roomId = allocateCode();
@@ -239,7 +240,7 @@ class PrivateDash extends Playground {
     this.state.nextArenaId = 'dash';
     this.state.capacity = this.maxClients = this.lobby.capacity;
     await this.setPrivate();
-    super.onCreate(options);
+    super.onCreate();
     this.onMessage('ready', (client, value: unknown) => {
       if (typeof value === 'boolean' && this.lobby.setReady(client.sessionId, value)) {
         this.state.guests.get(client.sessionId)!.ready = value;
@@ -256,7 +257,7 @@ class PrivateDash extends Playground {
       roster.forEach(id => names.set(id, this.state.guests.get(id)!.name));
       const dash = new DashArenaRun();
       try {
-        dash.setup({ roster, name: id => names.get(id) ?? id });
+        dash.setup({ owner: this.roomId, roster, name: id => names.get(id) ?? id });
       } catch (error) {
         dash.dispose();
         this.lobby.finishMatch(roster);
@@ -352,8 +353,8 @@ class PrivateDash extends Playground {
     const arena = active?.arena;
     const inputTick = clampInputTick(input.tick, player.simTick, serverTick);
     simulateInput(
-      player, input, dt, arena?.collisionBoxes, arena ? arena.spawn(player.slot) : undefined,
-      inputTick, arena?.movers,
+      player, input, dt, arena?.manifest.boxes, arena ? arena.spawn(player.slot) : undefined,
+      inputTick, arena?.manifest.movers,
     );
     if (!active || !arena) return;
     const scoringDash = this.state.arenaId === 'dash' && !active.dashLocked;
@@ -390,6 +391,7 @@ class PrivateDash extends Playground {
     if (now >= clock.dodgeStartsAt && !active.dodge) {
       const dodge = new DodgeArenaRun();
       dodge.setup({
+        owner: this.roomId,
         roster,
         name: id => active.names.get(id) ?? id,
         seed: active.seed,

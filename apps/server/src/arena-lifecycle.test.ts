@@ -1,25 +1,25 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { spawnPlayer } from '@chaos/shared';
-import { LIVE_ARENA_RUNS } from './arena-run.js';
+import { liveArenaRuns } from './arena-run.js';
 import { DashArenaRun } from './dash-arena.js';
 import { DodgeArenaRun } from './dodge-arena.js';
 import { SHORT_TIMING, ShortPartyClock } from './short-party-clock.js';
 
 const roster = ['a', 'b', 'c', 'd'];
-const setup = { roster, name: (id: string) => id, seed: 7, startTick: 0 };
+const setup = { owner: 'room-a', roster, name: (id: string) => id, seed: 7, startTick: 0 };
 
 test('a disposed arena run performs no gameplay and cannot be revived', () => {
   for (const run of [new DashArenaRun(), new DodgeArenaRun()]) {
     assert.throws(() => run.update(0, 0), /not active/);
     run.setup(setup);
-    assert.equal(LIVE_ARENA_RUNS.has(run), true);
+    assert.equal(liveArenaRuns('room-a'), 1);
     assert.throws(() => run.setup(setup), /only be set up once/);
     const player = spawnPlayer(0);
     run.playerStep('a', player, player, 0, 0);
     run.dispose();
     run.dispose();
-    assert.equal(LIVE_ARENA_RUNS.has(run), false);
+    assert.equal(liveArenaRuns('room-a'), 0);
     assert.throws(() => run.update(1, 1), /not active/);
     assert.throws(() => run.playerStep('a', player, player, 0, 1), /not active/);
     assert.throws(() => run.rank(), /not active/);
@@ -27,31 +27,51 @@ test('a disposed arena run performs no gameplay and cannot be revived', () => {
   }
 });
 
-test('repeated Short Party arena cycles release every run and settle memory', () => {
-  const gc = (globalThis as { gc?: () => void }).gc;
-  const cycle = () => {
-    const dash = new DashArenaRun();
-    dash.setup(setup);
-    const player = spawnPlayer(0);
-    for (const id of roster) dash.playerStep(id, player, player, 10, 0);
-    dash.rank();
-    dash.dispose();
-    const dodge = new DodgeArenaRun();
-    dodge.setup(setup);
-    for (let tick = 0; tick < 30; tick++) for (const id of roster) dodge.playerStep(id, player, player, 0, tick);
-    dodge.rank();
-    dodge.dispose();
-  };
-  for (let index = 0; index < 50; index++) cycle();
-  gc?.();
-  const baseline = process.memoryUsage().heapUsed;
+test('live arena runs are counted per owning room', () => {
+  const a = new DashArenaRun();
+  const b = new DodgeArenaRun();
+  a.setup(setup);
+  b.setup({ ...setup, owner: 'room-b' });
+  assert.equal(liveArenaRuns('room-a'), 1);
+  assert.equal(liveArenaRuns('room-b'), 1);
+  assert.equal(liveArenaRuns(), 2);
+  a.dispose();
+  assert.equal(liveArenaRuns('room-a'), 0);
+  assert.equal(liveArenaRuns('room-b'), 1);
+  b.dispose();
+  assert.equal(liveArenaRuns(), 0);
+});
+
+/** One Short Party's worth of arena work: Dash, then Dodge, each set up, played, ranked and disposed. */
+function cycle() {
+  const player = spawnPlayer(0);
+  const dash = new DashArenaRun();
+  dash.setup(setup);
+  for (const id of roster) dash.playerStep(id, player, player, 10, 0);
+  dash.rank();
+  dash.dispose();
+  const dodge = new DodgeArenaRun();
+  dodge.setup(setup);
+  for (let tick = 0; tick < 30; tick++) for (const id of roster) dodge.playerStep(id, player, player, 0, tick);
+  dodge.rank();
+  dodge.dispose();
+}
+
+test('repeated Short Party arena cycles release every run', () => {
   for (let index = 0; index < 2000; index++) {
     cycle();
-    assert.equal(LIVE_ARENA_RUNS.size, 0);
+    assert.equal(liveArenaRuns(), 0);
   }
-  gc?.();
-  // Only meaningful with --expose-gc; without it the run count above is the check.
-  if (gc) assert.ok(process.memoryUsage().heapUsed - baseline < 2_000_000, 'heap grew across arena cycles');
+});
+
+const gc = (globalThis as { gc?: () => void }).gc;
+test('repeated Short Party arena cycles settle to a stable heap', { skip: !gc && 'needs node --expose-gc (npm test passes it)' }, () => {
+  for (let index = 0; index < 50; index++) cycle();
+  gc!();
+  const baseline = process.memoryUsage().heapUsed;
+  for (let index = 0; index < 2000; index++) cycle();
+  gc!();
+  assert.ok(process.memoryUsage().heapUsed - baseline < 2_000_000, 'heap grew across arena cycles');
 });
 
 test('the Short Party timeline is 315 s and names the arena to prefetch', () => {
