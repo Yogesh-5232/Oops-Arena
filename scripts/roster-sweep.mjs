@@ -1,7 +1,7 @@
 /**
- * Roster-size sweep (Phase 6 exit criterion): every roster size from 4 to 12
+ * Roster-size sweep (Phase 6 exit criterion): every roster size from 2 to 12
  * plays every single-arena mode, with bots that actually play — Dash bots run
- * the gates, Teamwork bots push and hold plates, Lava and Dodge bots stand
+ * the gates in three lanes, Teamwork bots push and hold plates, Lava and Dodge bots stand
  * their ground. One private room per size, all sizes at once, the same rooms
  * rematching through each mode.
  *
@@ -22,7 +22,7 @@ import { ARENA_BUILD, DASH_GATES, PLAYLISTS, TEAM_RULES, laneX, plateCenter, pla
 const port = process.env.SWEEP_PORT ?? '2602';
 const scale = Number(process.env.SWEEP_SCALE ?? 0.25);
 const modes = (process.env.SWEEP_MODES ?? 'dash,lava,dodge,team').split(',');
-const sizes = (process.env.SWEEP_SIZES ?? '4,5,6,7,8,9,10,11,12').split(',').map(Number);
+const sizes = (process.env.SWEEP_SIZES ?? '2,3,4,5,6,7,8,9,10,11,12').split(',').map(Number);
 const endpoint = `http://127.0.0.1:${port}`;
 const server = spawn(process.execPath, ['apps/server/dist/main.js'], {
   env: { ...process.env, NODE_ENV: 'test', SHORT_PARTY_TEST_SCALE: String(scale), PORT: port, PLAYGROUND_TELEMETRY: '1' },
@@ -55,7 +55,7 @@ function toward(me, x, z) {
 }
 
 /** One bot's steering for the current round; `role` is its Teamwork job ('push' or 'hold'). */
-function steer(room, role) {
+function steer(room, role, lane) {
   const me = room.state.players.get(room.sessionId);
   const guest = room.state.guests.get(room.sessionId);
   if (!me || !guest?.racing || room.state.phase !== 'round') return [0, 0];
@@ -65,7 +65,9 @@ function steer(room, role) {
     // Line up inside the gap, clear of the wall just passed, then run straight through it.
     const previous = DASH_GATES[index - 1];
     const laneZ = Math.max(gate.z + 1.5, Math.min(me.z, previous ? previous.z - 1.5 : Infinity));
-    if (Math.abs(me.x - gate.x) > gate.halfWidth - 1.2) return toward(me, gate.x, laneZ);
+    // Players block each other, so bots spread over three lanes in the gap instead of queueing on one point.
+    const gapX = gate.x + ((lane % 3) - 1) * 1.1;
+    if (Math.abs(me.x - gapX) > 0.3) return toward(me, gapX, laneZ);
     return [0, -1];
   }
   if (room.state.arenaId === 'team') {
@@ -86,11 +88,11 @@ function steer(room, role) {
 
 /** One input sender per room for its whole life, reused across modes. */
 const inputs = new WeakMap();
-function drive(room, role) {
+function drive(room, role, lane) {
   if (!inputs.has(room)) inputs.set(room, room.input({ mode: 'reliable' }));
   const input = inputs.get(room);
   const timer = setInterval(() => {
-    const [x, z] = steer(room, role);
+    const [x, z] = steer(room, role, lane);
     Object.assign(input.data, { x, z, jump: false });
     input.send();
   }, 1000 / 30);
@@ -119,10 +121,10 @@ async function play(group, mode) {
     assert.ok(Math.abs(teams[0].length - teams[1].length) <= 1, `${size}p team: teams ${teams[0].length}v${teams[1].length}`);
   }
   let tickRate = 0;
-  const stops = group.map(room => {
+  const stops = group.map((room, lane) => {
     const team = teams.findIndex(members => members.includes(room));
     const index = team < 0 ? 0 : teams[team].indexOf(room);
-    return drive(room, index === 0 ? 'hold' : { slot: index });
+    return drive(room, index === 0 ? 'hold' : { slot: index }, lane);
   });
   try {
     const expected = playlistMs(PLAYLISTS[mode]) * scale;
@@ -162,7 +164,8 @@ try {
   }, 'sweep server did not listen');
   const groups = [];
   for (const size of sizes) {
-    const host = await join(sdk.create('private-dash', { capacity: size, build: ARENA_BUILD }));
+    // Rooms hold at least four seats; a match can start with as few as two ready players.
+    const host = await join(sdk.create('private-dash', { capacity: Math.max(4, size), build: ARENA_BUILD }));
     const group = [host];
     for (let i = 1; i < size; i++) group.push(await join(sdk.joinById(host.state.code, { build: ARENA_BUILD })));
     groups.push(group);
