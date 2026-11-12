@@ -1,5 +1,5 @@
 import * as pc from 'playcanvas';
-import { dodgeHazards, moverCenter, moverWarns, type ArenaManifest, type Mover } from '@chaos/shared';
+import { LAVA_TIERS, dodgeHazards, lavaLevel, lavaWarning, moverCenter, moverWarns, type ArenaManifest, type Mover } from '@chaos/shared';
 import type { StageView } from './arena-stage.js';
 
 /** Materials alive right now, for leak checks in diagnostics builds. */
@@ -39,6 +39,16 @@ const DODGE_ACTIVE = new pc.Color(0.95, 0.15, 0.12);
 const DODGE_GLOW = new pc.Color(0.3, 0, 0);
 /** Dodge never shows more than two hazards at once (one sweeper or two drop zones). */
 const MAX_DODGE_HAZARDS = 2;
+const LAVA_COLOR = new pc.Color(1, 0.35, 0.05);
+const LAVA_GLOW = new pc.Color(0.6, 0.12, 0);
+const LAVA_RISING = new pc.Color(1, 0.6, 0.1);
+const LAVA_RISING_GLOW = new pc.Color(0.9, 0.35, 0);
+/** The lava pool covers the base floor; it is drawn from just under the floor up to the lava surface. */
+const LAVA_HALF = LAVA_TIERS[0]!.half;
+const LAVA_BOTTOM = -1;
+
+/** Seeded or timed hazards for the live round, by arena tick. */
+export type HazardClock = { seed: number; elapsedTicks: number; roundTicks: number };
 
 type Tinted = { entity: pc.Entity; material: pc.StandardMaterial };
 const scratch: [number, number, number] = [0, 0, 0];
@@ -61,6 +71,7 @@ export class ArenaView implements StageView {
   private readonly materials: pc.StandardMaterial[] = [];
   private readonly movers: Array<Tinted & { mover: Mover }> = [];
   private readonly hazards: Tinted[] = [];
+  private lava?: Tinted;
 
   constructor(parent: pc.Entity, readonly manifest: ArenaManifest) {
     this.id = manifest.id;
@@ -93,24 +104,40 @@ export class ArenaView implements StageView {
         this.hazards.push({ entity, material });
       }
     }
+    if (manifest.hazards === 'lava') {
+      const material = this.own(createMaterial(LAVA_COLOR));
+      material.emissive.copy(LAVA_GLOW);
+      material.update();
+      this.lava = { material, entity: solid('lava-pool', material, new pc.Vec3(1, 1, 1), this.root) };
+    }
   }
 
   setVisible(visible: boolean): void { this.root.enabled = visible; }
 
   /**
-   * Poses movers at a (possibly fractional) world tick and, while a Dodge round
-   * is live, its seeded hazards at the elapsed arena tick.
+   * Poses movers at a (possibly fractional) world tick and, while a round is
+   * live, its hazards at the elapsed arena tick: Dodge's seeded hazards or the
+   * Lava surface. Outside a live round, lava rests at its starting level.
    */
-  pose(tick: number, dodge?: { seed: number; elapsedTicks: number }): void {
+  pose(tick: number, live?: HazardClock): void {
     for (const { mover, entity, material } of this.movers) {
       entity.setPosition(...moverCenter(mover, tick, scratch));
       const warning = moverWarns(mover, Math.floor(tick));
       tint(material, warning ? WARNING_COLOR : MOVER_COLORS[mover.kind], warning ? WARNING_GLOW : pc.Color.BLACK);
     }
+    if (this.lava) {
+      const elapsed = live ? Math.max(0, live.elapsedTicks) : 0;
+      const roundTicks = live?.roundTicks ?? 1;
+      const top = lavaLevel(elapsed, roundTicks);
+      this.lava.entity.setLocalScale(LAVA_HALF * 2, top - LAVA_BOTTOM, LAVA_HALF * 2);
+      this.lava.entity.setPosition(0, (top + LAVA_BOTTOM) / 2, 0);
+      const rising = Boolean(live) && lavaWarning(Math.floor(elapsed), roundTicks);
+      tint(this.lava.material, rising ? LAVA_RISING : LAVA_COLOR, rising ? LAVA_RISING_GLOW : LAVA_GLOW);
+    }
     if (this.hazards.length === 0) return;
-    const live = dodge ? dodgeHazards(dodge.seed, dodge.elapsedTicks) : [];
+    const active = live ? dodgeHazards(live.seed, live.elapsedTicks) : [];
     this.hazards.forEach(({ entity, material }, index) => {
-      const hazard = live[index];
+      const hazard = active[index];
       entity.enabled = Boolean(hazard);
       if (!hazard) return;
       // Plain numbers: this runs every frame, so it allocates nothing.
@@ -127,6 +154,7 @@ export class ArenaView implements StageView {
     this.root.destroy();
     for (const material of this.materials) destroyMaterial(material);
     this.materials.length = this.movers.length = this.hazards.length = 0;
+    this.lava = undefined;
   }
 
   private own(material: pc.StandardMaterial): pc.StandardMaterial {

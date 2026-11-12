@@ -127,14 +127,14 @@ try {
   const dashResult = JSON.parse(host.state.standings);
   assert.equal(dashResult.interrupted, false);
   assert.equal(dashResult.rows.length, 4);
-  assert.ok(dashResult.rows.every(row => row.dash?.finishMs !== null && row.dash?.checkpoints === 3));
+  assert.ok(dashResult.rows.every(row => /^Dash \d/.test(row.rounds[0]?.summary ?? '')), 'every racer must finish Dash');
   await leave(host);
   const nextHost = racers[1];
   await until(() => nextHost.state.hostId === nextHost.sessionId, 'host did not transfer after leave');
   await until(() => [...rooms].every(room => room.state.phase === 'results'), 'Short Party results did not arrive', 40000);
   const final = waiting.state.standings;
   const combined = JSON.parse(final);
-  assert.ok(combined.rows.every(row => row.dash && row.dodge), 'both arena results must be present');
+  assert.ok(combined.rows.every(row => row.rounds.length === 2 && row.rounds.every(Boolean)), 'both arena results must be present');
   assert.ok([...rooms].every(room => room.state.standings === final), 'clients received different combined standings');
   await until(() => [...rooms].every(room => room.state.phase === 'lobby'), 'lobby did not reopen', 3000);
   const elapsed = performance.now() - started;

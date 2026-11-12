@@ -14,7 +14,14 @@ export { DODGE_BOXES, DODGE_MOVERS, DODGE_RULES, dodgeHazards, dodgeSpawn, resol
 export {
   ARENAS, ARENA_BUILD, BUILD_RULES, PROTOCOL_VERSION, arenaManifest, buildId, type ArenaId, type ArenaManifest, type ArenaMarker,
 } from './manifests.js';
-export type { DodgeStanding, ShortPartyResults, ShortPartyStanding } from './short-party.js';
+export {
+  LAVA_BOXES, LAVA_GATES, LAVA_MOVERS, LAVA_PADS, LAVA_RULES, LAVA_TIERS, lavaBalconySpot, lavaClosing, lavaLevel, lavaSpawn,
+  lavaWarning, resolveLava, type LavaEvent,
+} from './lava.js';
+export {
+  PLAYLISTS, playlistMs, type DodgeStanding, type LavaStanding, type PartyResults, type PartyStanding, type Playlist,
+  type PresetId, type RoundArenaId, type RoundResult, type RoundStanding,
+} from './short-party.js';
 export const CAPACITY = GREYBOX_ARENA.spawns.length;
 export const PRESETS = { quick: 120, short: 315, standard: 540, full: 730 } as const;
 /**

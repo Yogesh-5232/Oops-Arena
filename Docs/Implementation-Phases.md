@@ -13,8 +13,8 @@ The phase order follows technical dependencies. Visual polish can progress withi
 | 2 | Responsive networked controller | Phase 1 | Controller, lag measurements, world movement and movers implemented. Real-network playtest next |
 | 3 | Complete private Dash match | Phase 2 | Private Dash flow implemented. Physical browser acceptance pending |
 | 4 | Arena lifecycle and Dodge | Phase 3 | Implemented — arena manifests, prefetch/disposal, build check and resync verified in SDK tests and a one-machine browser run. Multi-device and full-speed acceptance pending |
-| 5 | Public matchmaking and parties | Phase 4 | Planned |
-| 6 | Four-game MVP and all presets | Phase 5 | Planned |
+| 5 | Public matchmaking and parties | Phase 4 | Deferred — future implementation, after Phase 6 |
+| 6 | Four-game MVP and all presets | Phase 4 | In progress — Floor Is Lava and Standard preset implemented; Teamwork Madness and Full next |
 | 7 | Presentation and accessibility | Phase 6 | Planned |
 | 8 | Release validation and operations | Phase 7 | Planned |
 | 9 | Evidence-led expansion | Released MVP | Post-MVP |
@@ -112,6 +112,8 @@ The phase order follows technical dependencies. Visual polish can progress withi
 
 ## Phase 5 — Public matchmaking and parties
 
+**Status.** Deferred for future implementation (decided 2026-11-12). Phase 6 proceeds first on the private path; this phase must land before Phase 8 release validation.
+
 **Objective.** Let strangers and intact friend groups enter the same complete game loop.
 
 - Launch one public Short Party queue in one region.
@@ -139,11 +141,13 @@ The phase order follows technical dependencies. Visual polish can progress withi
 - Add Standard and Full private presets. Reuse an arena variation for the finale.
 - Validate each supported preset/playlist combination, including Quick-specific layouts or eligibility restrictions.
 
-**Deliverable.** Four arenas and all private session presets with one public Short queue.
+**Deliverable.** Four arenas and all private session presets. The public Short queue follows with Phase 5.
 
 **Exit criteria.** Every roster size from 4 through 12 completes each applicable mode. All scheduled match windows stay within 120–900 seconds. No round elimination removes a player from the session. Playtesters can understand and recover from team failures.
 
 **Main risks.** Cargo griefing, roster imbalance, repetitive survival modes and excessive idle time.
+
+**Progress (2026-11-12).** Floor Is Lava is implemented ([plan](Floor-Is-Lava-Plan.md)): a stepped four-gate tower with stairs and timed lifts, lava rising on fractions of the round, early respawns carried past flooded pads, a closing stretch that sends caught players to a viewing balcony, and a summit sweeper. Server and prediction share `resolveLava`. The room now runs data-driven playlists (`PLAYLISTS`): Short (Dash, Dodge, 315 s) and Standard (Dash, Lava, Dodge, 540 s), chosen by the host in the lobby. A generic `PartyClock` and `PartyScoreboard` replace the Short-only versions; results carry one summary per round. Protocol version is 2. Unit tests cover tower reachability, lava rules, playlist timing and Lava ranking. A one-tab plus three-bot run at 10% speed completed a Standard match with all three rounds scored and arena runs released. Open: full-speed and multi-device Lava playtests, Teamwork Madness, the Full preset and its finale, roster-size sweeps.
 
 ## Phase 7 — Presentation and accessibility
 

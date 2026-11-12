@@ -10,6 +10,8 @@ export type ArenaSetup = {
   name: (id: string) => string;
   seed?: number;
   startTick?: number;
+  /** Length of the round in ticks, for arenas whose hazards scale with it. */
+  roundTicks?: number;
   inactiveIds?: readonly string[];
 };
 
@@ -30,6 +32,8 @@ export interface ArenaRun<Result> {
   rank(): Result;
   /** Release all run-owned state. Must be safe to call more than once. */
   dispose(): void;
+  /** Arenas that rank disconnected players separately implement this. */
+  setConnected?(id: string, connected: boolean): void;
 }
 
 /** Every arena run between setup and dispose, with the room that owns it. */

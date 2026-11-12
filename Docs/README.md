@@ -1,6 +1,6 @@
 # Chaos Playground documentation
 
-Start with the implementation phases. The project remains in the foundation stage.
+Start with the implementation phases. Phases 0–4 are implemented; Phase 5 is deferred and Phase 6 is next.
 
 | Document | Purpose |
 |---|---|

@@ -1,9 +1,9 @@
-import type { ShortPartyResults } from '@chaos/shared';
+import { ARENAS, DASH_GATES, LAVA_GATES, PLAYLISTS, type PartyResults, type PresetId } from '@chaos/shared';
 
 type Guest = { name: string; ready: boolean; connected: boolean; racing: boolean; progress: number };
 export type PrivateState = {
   code: string; codeExpiresAt: number; phase: string; hostId: string; capacity: number;
-  arenaId: string; roundIndex: number;
+  arenaId: string; roundIndex: number; preset: string;
   remainingMs: number; standings: string;
   guests: { get(id: string): Guest | undefined; forEach(visit: (guest: Guest, id: string) => void): void };
 };
@@ -21,14 +21,31 @@ const startButton = document.querySelector<HTMLButtonElement>('#start-match')!;
 const results = document.querySelector<HTMLElement>('#match-results')!;
 const resultsTitle = document.querySelector<HTMLElement>('#results-title')!;
 const standings = document.querySelector<HTMLElement>('#standings')!;
+const presetPicker = document.querySelector<HTMLSelectElement>('#preset')!;
+const presetLabel = presetPicker.closest('label')!;
+const SHORT_NAMES: Record<string, string> = { dash: 'Dash', lava: 'Lava', dodge: 'Dodge' };
 
-export function privatePanel(ready: (value: boolean) => void, start: () => void) {
+const playlistOf = (preset: string) => PLAYLISTS[(Object.hasOwn(PLAYLISTS, preset) ? preset : 'short') as PresetId];
+const arenaName = (id: string | undefined) => id ? ARENAS[id as keyof typeof ARENAS]?.name ?? id : '';
+/** HUD line for the local racer during a round, from the arena's public progress number. */
+function roundLine(arenaId: string, time: number, progress: number): string {
+  const name = arenaName(arenaId);
+  if (arenaId === 'dodge') return `${name} · ${time}s · ${progress} hits`;
+  if (arenaId === 'lava') return progress < 0
+    ? `${name} · ${time}s · caught by the lava, watching from the balcony`
+    : `${name} · ${time}s · gate ${progress}/${LAVA_GATES}`;
+  const checkpoints = DASH_GATES.length - 1;
+  return `${name} · ${time}s · ${Math.min(checkpoints, progress)}/${checkpoints} checkpoints`;
+}
+
+export function privatePanel(ready: (value: boolean) => void, start: () => void, choosePreset: (value: string) => void) {
   let lastGuests = '';
   let lastStandings = '';
   let lastPhase = '';
   let canAct = true;
   panel.hidden = false;
   startButton.onclick = start;
+  presetPicker.onchange = () => choosePreset(presetPicker.value);
   return {
     setConnected(connected: boolean) {
       canAct = connected;
@@ -62,43 +79,47 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void)
         }));
       }
       guests.hidden = !lobby;
+      const playlist = playlistOf(state.preset);
+      const round = `Round ${state.roundIndex + 1}/${playlist.rounds.length}`;
       phaseLabel.textContent = lobby
-        ? `Plaza · ${rows.length}/${state.capacity} guests · ${readyCount} ready (4 needed)`
-        : state.phase === 'countdown' ? `Short Party starts in ${time}s · Dash`
-        : state.phase === 'transition' ? `Dodge begins in ${time}s`
+        ? `Plaza · ${playlist.name} · ${rows.length}/${state.capacity} guests · ${readyCount} ready (4 needed)`
+        : state.phase === 'countdown' ? `${playlist.name} starts in ${time}s · ${arenaName(playlist.rounds[0])}`
+        : state.phase === 'transition' ? `${round} · ${arenaName(playlist.rounds[state.roundIndex])} begins in ${time}s`
         : state.phase === 'results' ? `Final results · returning to plaza in ${time}s`
         : !me?.racing ? `Waiting for the party · ${time}s left`
-        : state.phase === 'cooldown' ? `Dash standings locked · ${time}s left`
-        : state.arenaId === 'dodge' ? `Dodge Everything · ${time}s · ${me.progress} hits`
-        : `Ultimate Obstacle Dash · ${time}s · ${Math.min(2, me.progress)}/2 checkpoints`;
+        : state.phase === 'cooldown' ? `${arenaName(state.arenaId)} standings locked · ${time}s left`
+        : roundLine(state.arenaId, time, me.progress);
+      const host = sessionId === state.hostId;
+      presetLabel.hidden = !lobby;
+      presetPicker.disabled = !canAct || !host;
+      if (presetPicker.value !== state.preset && Object.hasOwn(PLAYLISTS, state.preset)) presetPicker.value = state.preset;
       readyButton.hidden = !lobby;
       readyButton.disabled = !canAct || !me?.connected;
       readyButton.textContent = me?.ready ? 'Cancel ready' : 'Ready';
       readyButton.onclick = () => ready(!me?.ready);
-      startButton.hidden = !lobby || sessionId !== state.hostId;
+      startButton.hidden = !lobby || !host;
+      startButton.textContent = `Start ${playlist.name}`;
       startButton.disabled = !canAct || !me?.ready || readyCount < 4;
       results.hidden = !state.standings || !(state.phase === 'transition' || state.phase === 'results' || lobby);
-      resultsTitle.textContent = state.phase === 'results'
-        ? 'Short Party results' : state.phase === 'lobby' ? 'Last Short Party results' : 'Standings after Dash';
+      resultsTitle.textContent = state.phase === 'results' ? `${playlist.name} results`
+        : lobby ? 'Last party results' : `Standings after ${arenaName(playlist.rounds[state.roundIndex - 1])}`;
       if (lastStandings === state.standings) return;
       lastStandings = state.standings;
       standings.replaceChildren();
       if (!state.standings) return;
-      const result = JSON.parse(state.standings) as ShortPartyResults;
-      if (result.interrupted && (state.phase === 'results' || lobby)) resultsTitle.textContent = 'Short Party interrupted';
+      const result = JSON.parse(state.standings) as PartyResults;
+      if (result.interrupted && (state.phase === 'results' || lobby)) resultsTitle.textContent = `${playlistOf(result.preset).name} interrupted`;
       for (const row of result.rows) {
         const entry = document.createElement('li');
-        const dash = row.dash
-          ? row.dash.finishMs === null ? `Dash DNF ${row.dash.checkpoints}/2` : `Dash ${(row.dash.finishMs / 1000).toFixed(1)}s`
-          : 'Dash pending';
-        const dodge = row.dodge ? row.dodge.active ? `Dodge ${row.dodge.hits} hits` : 'Dodge DNF' : 'Dodge pending';
-        entry.textContent = `${row.place}. ${row.name} — ${row.totalPoints} pts (${dash}, ${dodge})`;
+        const rounds = row.rounds.map((round, index) => round?.summary ?? `${SHORT_NAMES[result.arenas[index]!] ?? 'Round'} pending`);
+        entry.textContent = `${row.place}. ${row.name} — ${row.totalPoints} pts (${rounds.join(', ')})`;
         standings.append(entry);
       }
     },
     dispose() {
       panel.hidden = true;
       readyButton.onclick = startButton.onclick = null;
+      presetPicker.onchange = null;
     },
   };
 }
