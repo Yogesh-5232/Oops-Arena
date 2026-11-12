@@ -4,6 +4,8 @@ import {
   type ArenaManifest, type Mover,
 } from '@chaos/shared';
 import type { StageView } from './arena-stage.js';
+import { LavaKit, type LavaKitView } from './lava-kit.js';
+import type { PlazaKit } from './plaza-kit.js';
 
 /** Materials alive right now, for leak checks in diagnostics builds. */
 let liveMaterials = 0;
@@ -100,10 +102,11 @@ export class ArenaView implements StageView {
   private readonly movers: Array<Tinted & { mover: Mover }> = [];
   private readonly hazards: Tinted[] = [];
   private lava?: Tinted;
+  private lavaKit?: LavaKitView;
   private crates: pc.Entity[] = [];
   private gates: Array<Tinted & { team: number; gate: number }> = [];
 
-  constructor(parent: pc.Entity, readonly manifest: ArenaManifest) {
+  constructor(parent: pc.Entity, readonly manifest: ArenaManifest, plazaKit?: PlazaKit, lavaKit?: LavaKit) {
     this.id = manifest.id;
     this.root = new pc.Entity(`arena-${manifest.id}-v${manifest.version}`);
     this.root.enabled = false;
@@ -114,17 +117,20 @@ export class ArenaView implements StageView {
       if (!material) shared.set(key, material = this.own(createMaterial(color)));
       return material;
     };
+    const fallback = (plazaKit && manifest.id === 'plaza') || (lavaKit && manifest.id === 'lava')
+      ? new pc.Entity(`${manifest.id} fallback`) : undefined;
+    if (fallback) this.root.addChild(fallback);
     for (const piece of manifest.boxes) {
-      const entity = solid(piece.id, sharedMaterial(piece.kind, BOX_COLORS[piece.kind]), this.size(piece.min, piece.max), this.root);
+      const entity = solid(piece.id, sharedMaterial(piece.kind, BOX_COLORS[piece.kind]), this.size(piece.min, piece.max), fallback ?? this.root);
       entity.setPosition(...this.center(piece.min, piece.max));
     }
     for (const marker of manifest.markers) {
-      const entity = solid(marker.id, sharedMaterial(marker.kind, MARKER_COLORS[marker.kind]), this.size(marker.min, marker.max), this.root);
+      const entity = solid(marker.id, sharedMaterial(marker.kind, MARKER_COLORS[marker.kind]), this.size(marker.min, marker.max), fallback ?? this.root);
       entity.setPosition(...this.center(marker.min, marker.max));
     }
     for (const mover of manifest.movers) {
       const material = this.own(createMaterial(MOVER_COLORS[mover.kind]));
-      this.movers.push({ mover, material, entity: solid(mover.id, material, new pc.Vec3(...mover.size), this.root) });
+      this.movers.push({ mover, material, entity: solid(mover.id, material, new pc.Vec3(...mover.size), fallback ?? this.root) });
     }
     if (manifest.hazards === 'dodge') {
       for (let index = 0; index < MAX_DODGE_HAZARDS; index++) {
@@ -138,7 +144,7 @@ export class ArenaView implements StageView {
       const material = this.own(createMaterial(LAVA_COLOR));
       material.emissive.copy(LAVA_GLOW);
       material.update();
-      this.lava = { material, entity: solid('lava-pool', material, new pc.Vec3(1, 1, 1), this.root) };
+      this.lava = { material, entity: solid('lava-pool', material, new pc.Vec3(1, 1, 1), fallback ?? this.root) };
     }
     if (manifest.hazards === 'team') {
       const [hx, hy, hz] = TEAM_RULES.cargoHalf;
@@ -153,6 +159,8 @@ export class ArenaView implements StageView {
         }
       }
     }
+    if (fallback && manifest.id === 'plaza') plazaKit?.mount(this.root, fallback);
+    if (fallback && manifest.id === 'lava') lavaKit?.mount(this.root, fallback, manifest.movers, view => { this.lavaKit = view; });
   }
 
   setVisible(visible: boolean): void { this.root.enabled = visible; }
@@ -176,6 +184,7 @@ export class ArenaView implements StageView {
       this.lava.entity.setPosition(0, (top + LAVA_BOTTOM) / 2, 0);
       const rising = Boolean(live) && lavaWarning(Math.floor(elapsed), roundTicks);
       tint(this.lava.material, rising ? LAVA_RISING : LAVA_COLOR, rising ? LAVA_RISING_GLOW : LAVA_GLOW);
+      this.lavaKit?.pose(tick, elapsed, roundTicks);
     }
     if (this.crates.length > 0) {
       const cargo = objective?.cargo ?? [TEAM_RULES.cargoStartZ, TEAM_RULES.cargoStartZ];
@@ -210,6 +219,7 @@ export class ArenaView implements StageView {
     for (const material of this.materials) destroyMaterial(material);
     this.materials.length = this.movers.length = this.hazards.length = this.crates.length = this.gates.length = 0;
     this.lava = undefined;
+    this.lavaKit = undefined;
   }
 
   private own(material: pc.StandardMaterial): pc.StandardMaterial {

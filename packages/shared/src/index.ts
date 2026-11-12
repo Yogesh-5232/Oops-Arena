@@ -5,6 +5,7 @@ import { MAX_TICK_REWIND } from './timing.js';
 export { INPUT_BUFFER, MAX_TICK_REWIND, TICK_MS } from './timing.js';
 export { GREYBOX_ARENA, availableSpawn, type Box, type Checkpoint } from './arena.js';
 export { HALF_EXTENTS, overlaps, sweepAxis } from './collision.js';
+export { PLAZA_PORTALS, plazaPortalAt } from './plaza.js';
 export { MOVERS, moverBox, moverCenter, moverKnocks, moverWarns, type Mover } from './movers.js';
 export {
   MODE, MOVEMENT, NO_JUMP, playerAtMoverTick, resetToSpawn, spawnPlayer, step, type Input, type Player,

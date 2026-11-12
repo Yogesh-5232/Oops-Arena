@@ -2,12 +2,15 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import {
   ARENAS, ARENA_BUILD, BUILD_RULES, DASH_BOXES, DODGE_RULES, MOVEMENT, DASH_GATES, DODGE_BOXES, GREYBOX_ARENA, MOVERS, PROTOCOL_VERSION, arenaManifest, buildId,
-  type ArenaManifest,
+  PLAZA_PORTALS, overlaps, plazaPortalAt, spawnPlayer, step, type ArenaManifest,
 } from './index.js';
 
 test('manifests carry the exact collision lists the simulation uses', () => {
-  assert.equal(ARENAS.plaza.boxes, GREYBOX_ARENA.boxes);
-  assert.equal(ARENAS.plaza.movers, MOVERS);
+  assert.equal(ARENAS.plaza.boxes[0], GREYBOX_ARENA.boxes[0]);
+  assert.ok(ARENAS.plaza.boxes.slice(1).every(box => box.id.startsWith('portal-')));
+  assert.equal(ARENAS.plaza.movers.length, 0);
+  assert.equal(ARENAS.plaza.markers.length, 0);
+  assert.equal(ARENAS.dash.movers, MOVERS);
   assert.equal(ARENAS.dash.boxes, DASH_BOXES);
   assert.equal(ARENAS.dodge.boxes, DODGE_BOXES);
   assert.equal(ARENAS.dodge.movers.length, 0);
@@ -18,6 +21,28 @@ test('manifests carry the exact collision lists the simulation uses', () => {
     assert.equal((marker.min[2] + marker.max[2]) / 2, gate.z);
   });
   for (const [id, arena] of Object.entries(ARENAS)) assert.equal(arena.id, id);
+});
+
+test('the plaza keeps its spawn slots, clear portal approaches, and fall recovery', () => {
+  const { boxes, movers } = ARENAS.plaza;
+  for (const spawn of GREYBOX_ARENA.spawns) {
+    assert.ok(boxes.every(box => !overlaps([spawn.x, spawn.y, spawn.z], box)));
+  }
+  for (const portal of PLAZA_PORTALS) {
+    const x = portal.x + Math.sin(portal.yaw) * 0.56;
+    const z = portal.z + Math.cos(portal.yaw) * 0.56;
+    assert.equal(plazaPortalAt(x, z), portal);
+    assert.ok(boxes.every(box => !overlaps([x, 1, z], box)));
+    assert.equal(plazaPortalAt(portal.x - Math.sin(portal.yaw), portal.z - Math.cos(portal.yaw)), undefined);
+  }
+  const player = spawnPlayer(3);
+  const spawn = { ...player };
+  player.x = 16;
+  player.y = GREYBOX_ARENA.killY;
+  player.grounded = false;
+  step(player, { x: 0, z: 0, jump: false, tick: 1 }, 1 / 30, boxes, movers);
+  assert.deepEqual([player.x, player.y, player.z], [spawn.x, spawn.y, spawn.z]);
+  assert.equal(player.respawns, 1);
 });
 
 test('unset or unknown arena ids resolve to the plaza', () => {

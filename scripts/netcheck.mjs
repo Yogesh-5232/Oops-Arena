@@ -17,7 +17,8 @@ export async function until(predicate, description, timeout = 5000) {
 /** Starts apps/server/dist on `port` and resolves once it is listening. */
 export async function startBuiltServer(port, env = {}) {
   const child = spawn(process.execPath, ['apps/server/dist/main.js'], {
-    stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, ...env, PORT: String(port) },
+    stdio: ['ignore', 'pipe', 'inherit'],
+    env: { ...process.env, NODE_ENV: 'test', PLAYGROUND_TEST_COURSE: '1', ...env, PORT: String(port) },
   });
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => finish(Error('Server startup timed out')), 10000);

@@ -69,6 +69,8 @@ function teleportPlayer(player: Player, spawn?: Pick<Player, 'x' | 'y' | 'z'>): 
 class Playground extends Room {
   state = new State();
   maxClients = CAPACITY;
+  // Isolated network tests still exercise the original ferry and pusher course.
+  private readonly testCourse = process.env.NODE_ENV === 'test' && process.env.PLAYGROUND_TEST_COURSE === '1';
   /**
    * Disconnects a client that floods the socket (it counts input packets too).
    * Normal play sends 30 inputs plus at most one diagnostics request per second;
@@ -186,8 +188,9 @@ class Playground extends Room {
     return peers;
   }
   protected move(id: string, player: Player, input: Input, dt: number, _now: number, serverTick: number) {
-    simulateInput(player, input, dt, undefined, undefined, clampInputTick(input.tick, player.simTick, serverTick),
-      undefined, this.playerBlockers(id));
+    simulateInput(player, input, dt, this.testCourse ? undefined : ARENAS.plaza.boxes, undefined,
+      clampInputTick(input.tick, player.simTick, serverTick), this.testCourse ? undefined : ARENAS.plaza.movers,
+      this.playerBlockers(id));
   }
   onJoin(client: Client) {
     const slot = availableSpawn(this.slots.values());
@@ -452,8 +455,8 @@ class PrivateDash extends Playground {
     const run = active?.current;
     const inputTick = clampInputTick(input.tick, player.simTick, serverTick);
     simulateInput(
-      player, input, dt, run?.boxes(), run ? run.spawn(player.slot, id) : undefined,
-      inputTick, run?.manifest.movers, this.playerBlockers(id),
+      player, input, dt, run?.boxes() ?? ARENAS.plaza.boxes, run?.spawn(player.slot, id),
+      inputTick, run?.manifest.movers ?? ARENAS.plaza.movers, this.playerBlockers(id),
     );
     if (!active || !run) return;
     const index = active.currentIndex;

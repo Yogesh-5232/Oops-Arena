@@ -5,6 +5,7 @@ import { DODGE_BOXES, DODGE_FINALE_RULES, DODGE_MOVERS, DODGE_RULES, dodgeHazard
 import { LAVA_BOXES, LAVA_MOVERS, LAVA_PADS, LAVA_RULES, LAVA_TIERS, lavaBalconySpot, lavaLevel, lavaSpawn } from './lava.js';
 import { MODE, MOVEMENT, NO_JUMP } from './movement.js';
 import { MOVERS, type Mover } from './movers.js';
+import { PLAZA_BOXES } from './plaza.js';
 import { TEAM_BOXES, TEAM_GATES, TEAM_MOVERS, TEAM_RULES, laneX, plateCenter, teamSpawn } from './team.js';
 import { INPUT_BUFFER, MAX_TICK_REWIND, TICK_MS } from './timing.js';
 
@@ -43,9 +44,6 @@ export type ArenaManifest = {
   readonly spawn?: (slot: number, team?: number) => Spawn;
 };
 
-const checkpointMarkers: ArenaMarker[] = GREYBOX_ARENA.checkpoints.map(pad => ({
-  id: pad.id, kind: 'checkpoint', min: [pad.min[0], pad.min[1], pad.min[2]], max: [pad.max[0], pad.min[1] + 0.06, pad.max[2]],
-}));
 const gateMarkers: ArenaMarker[] = DASH_GATES.map((gate, index) => ({
   id: `dash-gate-${index}`, kind: 'gate',
   min: [gate.x - gate.halfWidth, 0.005, gate.z - 0.4], max: [gate.x + gate.halfWidth, 0.055, gate.z + 0.4],
@@ -67,8 +65,8 @@ const teamMarkers: ArenaMarker[] = [0, 1].flatMap(team => [
 
 export const ARENAS = {
   plaza: {
-    id: 'plaza', version: 1, name: 'Plaza',
-    boxes: GREYBOX_ARENA.boxes, movers: MOVERS, markers: checkpointMarkers, hazards: 'none',
+    id: 'plaza', version: 3, name: 'Plaza',
+    boxes: PLAZA_BOXES, movers: [], markers: [], hazards: 'none',
   },
   dash: {
     id: 'dash', version: 1, name: 'Ultimate Obstacle Dash',

@@ -4,5 +4,6 @@ main{max-height:calc(100vh - 48px);overflow:auto}
 #private-entry label{font-size:13px}
 #create-party{grid-column:1/-1}
 #room-code{width:8ch;text-transform:uppercase}
+#preset{max-width:100%}
 #private-room ul,#private-room ol{padding-left:1.3em;font-size:14px}
 #private-room h2{font-size:17px}

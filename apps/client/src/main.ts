@@ -2,17 +2,20 @@ import * as pc from 'playcanvas';
 import { Client } from '@colyseus/sdk';
 import { Predict, classifyDrift, type Reconciler } from '@colyseus/sdk/predict';
 import {
-  ARENA_BUILD, MODE, TICK_MS, arenaManifest, nextInputTick, resolveCargo, resolveDodgeHazards, resolveLava, simulateInput, teamWorld,
+  ARENA_BUILD, MODE, PLAYLISTS, PLAZA_PORTALS, TICK_MS, arenaManifest, nextInputTick, plazaPortalAt, resolveCargo, resolveDodgeHazards, resolveLava, simulateInput, teamWorld,
   type Input, type Player,
 } from '@chaos/shared';
 import { ArenaStage } from './arena-stage.js';
 import { ArenaView, TEAM_COLORS, createMaterial, materialCount, solid } from './arena-view.js';
+import { LavaKit } from './lava-kit.js';
+import { PlazaKit } from './plaza-kit.js';
 import { capacity, createButton, createPartyButton, joinCode, privateEntry, privatePanel } from './private-ui.js';
 import { RemotePose } from './remote-pose.js';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!;
 const status = document.querySelector<HTMLParagraphElement>('#status')!;
+const portalPrompt = document.querySelector<HTMLParagraphElement>('#portal-prompt')!;
 const button = document.querySelector<HTMLButtonElement>('#join')!;
 const leaveButton = document.createElement('button');
 leaveButton.textContent = 'Leave playground';
@@ -25,8 +28,11 @@ window.addEventListener('resize', () => app.resizeCanvas());
 app.scene.ambientLight = new pc.Color(0.7, 0.75, 0.8);
 const camera = new pc.Entity('camera');
 camera.addComponent('camera', { clearColor: new pc.Color(0.32, 0.62, 0.8) });
-camera.setPosition(0, 14, 18);
-camera.lookAt(0, 0, 0);
+function framePlaza() {
+  camera.setPosition(0, 14, 18);
+  camera.lookAt(0, 0, 0);
+}
+framePlaza();
 app.root.addChild(camera);
 // Avatars share one material per color, so joins and leaves never allocate materials.
 const avatarMaterials = new Map<string, pc.StandardMaterial>();
@@ -108,7 +114,9 @@ function poseAvatar(entity: pc.Entity, state: Player) {
 }
 // One arena tree on screen and at most one more prefetched for the next transition.
 // Each is built from the same manifest the simulation collides with.
-const arenas = new ArenaStage(id => new ArenaView(app.root, arenaManifest(id)));
+const plazaKit = new PlazaKit(app);
+const lavaKit = new LavaKit(app);
+const arenas = new ArenaStage(id => new ArenaView(app.root, arenaManifest(id), plazaKit, lavaKit));
 arenas.show('plaza');
 arenas.current?.pose(0);
 app.start();
@@ -174,6 +182,22 @@ function followCamera(x: number, y: number, z: number) {
 /** How far in the past other players are drawn: two 50 ms server updates of headroom. */
 const REMOTE_DELAY_MS = 100;
 /** A jump bigger than this between updates is a teleport (respawn), drawn as a cut, not a glide. */
+const PORTAL_ENTRY_MS = 1_050;
+type PortalTarget = { from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } };
+type PortalEntry = {
+  startedAt: number;
+  targets: Map<string, PortalTarget>;
+};
+/** Positions every party member across the mouth of a plaza portal for the short entry animation. */
+function portalEntryTarget(index: number, count: number, preset: 'lava'): { x: number; y: number; z: number } {
+  const portal = PLAZA_PORTALS.find(candidate => candidate.preset === preset)!;
+  const across = (index - (count - 1) / 2) * 0.44;
+  const forward = 0.95;
+  const cos = Math.cos(portal.yaw);
+  const sin = Math.sin(portal.yaw);
+  return { x: portal.x + cos * across + sin * forward, y: 1, z: portal.z - sin * across + cos * forward };
+}
+function easePortalEntry(progress: number): number { return progress * progress * (3 - 2 * progress); }
 async function connect(action: 'playground' | 'create' | 'create-party' | 'join') {
   if (button.disabled) return;
   button.disabled = true;
@@ -248,13 +272,30 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
     const remotePoses = new Map<string, RemotePose>();
     const remotePosition = { x: 0, y: 0, z: 0 };
     let shownArena = 'plaza';
+    let gameArenaId = 'plaza';
+    let portalEntry: PortalEntry | undefined;
     let patches = 0;
     room.onStateChange(state => {
       patches++;
       const arenaId = isPrivate ? arenaManifest(state.arenaId).id : 'plaza';
-      const sceneChanged = shownArena !== arenaId;
-      shownArena = arenaId;
-      arenas.show(arenaId);
+      const enteringLava = isPrivate && !portalEntry && shownArena === 'plaza' && state.phase === 'countdown' &&
+        state.roundIndex === 0 && state.preset === 'lava' && arenaId === 'lava';
+      if (enteringLava) {
+        const targets = new Map<string, PortalTarget>();
+        const count = Math.max(1, state.players.size);
+        let index = 0;
+        state.players.forEach((player: Player, id: string) => {
+          const visible = avatars.get(id);
+          const position = visible?.getPosition() ?? player;
+          targets.set(id, { from: { x: position.x, y: position.y, z: position.z }, to: portalEntryTarget(index++, count, 'lava') });
+        });
+        portalEntry = { startedAt: performance.now(), targets };
+      }
+      gameArenaId = arenaId;
+      const displayArenaId = portalEntry ? 'plaza' : arenaId;
+      const sceneChanged = shownArena !== displayArenaId;
+      shownArena = displayArenaId;
+      arenas.show(displayArenaId);
       if (isPrivate) {
         panel?.render(state, room.sessionId);
         arenas.prefetch(state.nextArenaId);
@@ -306,6 +347,19 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
       }
     });
     let connected = true;
+    const currentPortal = () => {
+      const player = me?.state;
+      if (!connected || !isPrivate || room.state.phase !== 'lobby' || room.state.hostId !== room.sessionId ||
+        !player?.grounded || player.y > 1.25) return;
+      return plazaPortalAt(player.x, player.z);
+    };
+    const selectPortal = (event: KeyboardEvent) => {
+      if (event.code !== 'KeyE' || event.repeat ||
+        (event.target instanceof HTMLElement && event.target.closest('button,input,select,textarea,[contenteditable]'))) return;
+      const portal = currentPortal();
+      if (portal) room.send('preset', portal.preset);
+    };
+    window.addEventListener('keydown', selectPortal);
     // Lost focus: forget held keys. Inputs keep flowing as "stand still", so prediction stays in step.
     const clearInput = () => {
       keys.clear();
@@ -414,6 +468,11 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
       // Hazards only run during a round itself; the server scores nothing outside it.
       const roundLive = isPrivate && room.state.arenaId !== 'plaza' &&
         (room.state.phase === 'round' || room.state.phase === 'cooldown');
+      if (portalEntry && performance.now() - portalEntry.startedAt >= PORTAL_ENTRY_MS) {
+        portalEntry = undefined;
+        shownArena = gameArenaId;
+        arenas.show(gameArenaId);
+      }
       arenas.current?.pose(worldTick, roundLive ? {
         seed: room.state.arenaSeed, elapsedTicks: worldTick - room.state.arenaStartTick, roundTicks: room.state.roundTicks,
       } : undefined, isPrivate ? { cargo: [room.state.cargo0, room.state.cargo1], gates: room.state.gates } : undefined);
@@ -422,10 +481,24 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
         if (shownRespawns !== undefined) cutFrames = 2;
         shownRespawns = me.state.respawns;
       }
-      // One read for everyone: predicted for the local avatar, interpolated for the rest.
-      const remoteTime = performance.now() - REMOTE_DELAY_MS;
-      const movers = arenaManifest(shownArena).movers;
-      for (const [id, entity] of avatars) {
+      // The server has already selected Lava while this short visual sequence moves everyone into its plaza portal.
+      if (portalEntry) {
+        const progress = easePortalEntry(Math.min(1, (performance.now() - portalEntry.startedAt) / PORTAL_ENTRY_MS));
+        for (const [id, entity] of avatars) {
+          const target = portalEntry.targets.get(id);
+          if (!target) continue;
+          const x = target.from.x + (target.to.x - target.from.x) * progress;
+          const y = target.from.y + (target.to.y - target.from.y) * progress;
+          const z = target.from.z + (target.to.z - target.from.z) * progress;
+          entity.setPosition(x, y, z);
+          avatarAnimations.get(entity)?.transition('Run', 0.1);
+          if (entity === localAvatar) followCamera(x, y, z);
+        }
+      } else {
+        // One read for everyone: predicted for the local avatar, interpolated for the rest.
+        const remoteTime = performance.now() - REMOTE_DELAY_MS;
+        const movers = arenaManifest(shownArena).movers;
+        for (const [id, entity] of avatars) {
         const source = sources.get(id);
         if (!source) continue;
         if (entity !== localAvatar) {
@@ -443,18 +516,28 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
         // Facing and dive tilt: our own from the prediction, others from the latest update.
         poseAvatar(entity, entity === localAvatar && me ? me.state : source);
         if (entity === localAvatar) followCamera(x, y, z);
+        }
       }
       if (cutFrames > 0) cutFrames--;
+      const portal = currentPortal();
+      const prompt = portal
+        ? room.state.preset === portal.preset ? `${PLAYLISTS[portal.preset].name} selected` : `Press E to select ${PLAYLISTS[portal.preset].name}`
+        : '';
+      if (portalPrompt.textContent !== prompt) portalPrompt.textContent = prompt;
+      portalPrompt.hidden = !prompt;
     };
     app.on('update', frame);
     room.onLeave(code => {
       connected = false;
+      window.removeEventListener('keydown', selectPortal);
+      portalPrompt.hidden = true;
       clearInput();
       sessionStorage.removeItem(reconnectKey);
       sessionStorage.removeItem(modeKey);
       panel?.dispose();
       arenas.show('plaza');
       arenas.prefetch('');
+      framePlaza();
       leaveButton.hidden = true;
       leaveButton.onclick = null;
       canvas.removeEventListener('click', lockCamera);
