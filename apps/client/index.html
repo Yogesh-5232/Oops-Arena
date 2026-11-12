@@ -13,18 +13,18 @@
     <button id="join">Join playground</button>
     <form id="private-entry" novalidate>
       <label>Capacity <input id="capacity" type="number" min="4" max="12" value="12" required></label>
-      <button id="create-private" type="button">Create private race</button>
+      <button id="create-private" type="button">Create private Short Party</button>
       <label>Room code <input id="room-code" maxlength="6" minlength="6" pattern="[A-Za-z2-9]{6}" required autocomplete="off" autocapitalize="characters"></label>
-      <button type="submit">Join private race</button>
+      <button type="submit">Join Short Party</button>
     </form>
     <section id="private-room" hidden>
       <p id="room-invite"></p>
       <p id="match-phase"></p>
       <ul id="guests"></ul>
       <button id="ready">Ready</button>
-      <button id="start-match">Start race</button>
+      <button id="start-match">Start Short Party</button>
       <section id="match-results" hidden>
-        <h2 id="results-title">Race results</h2>
+        <h2 id="results-title">Short Party standings</h2>
         <ol id="standings"></ol>
       </section>
     </section>

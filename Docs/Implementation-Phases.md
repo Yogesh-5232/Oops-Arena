@@ -12,7 +12,7 @@ The phase order follows technical dependencies. Visual polish can progress withi
 | 1 | Reliable four-player greybox | Phase 0 | Complete. Four-player browser playtest reported complete |
 | 2 | Responsive networked controller | Phase 1 | Controller, lag measurements, world movement and movers implemented. Real-network playtest next |
 | 3 | Complete private Dash match | Phase 2 | Private Dash flow implemented. Physical browser acceptance pending |
-| 4 | Arena lifecycle and Dodge | Phase 3 | Planned |
+| 4 | Arena lifecycle and Dodge | Phase 3 | In progress — Short Party, seeded Dodge and combined standings implemented; browser and cleanup validation remain |
 | 5 | Public matchmaking and parties | Phase 4 | Planned |
 | 6 | Four-game MVP and all presets | Phase 5 | Planned |
 | 7 | Presentation and accessibility | Phase 6 | Planned |
@@ -93,6 +93,7 @@ The phase order follows technical dependencies. Visual polish can progress withi
 **Objective.** Demonstrate multi-round play and bounded resources.
 
 - Extract a small arena interface for setup, fixed-step update, round ranking and disposal based on Dash's actual needs.
+- Keep match phases, deadlines and result finalization in the server room; each arena run owns only arena setup, its fixed-tick behavior, progress/ranking and run-scoped cleanup.
 - Keep one PlayCanvas app, common avatar assets and one active arena entity tree.
 - Add versioned arena manifests, next-arena prefetch and disposal of obsolete entities, listeners, collision data and assets.
 - Build Dodge Everything with two readable hazard families and authored seeded event patterns.
@@ -104,6 +105,8 @@ The phase order follows technical dependencies. Visual polish can progress withi
 **Exit criteria.** Repeated transitions settle to a stable memory baseline. Disabled arenas perform no gameplay simulation. A slow client can resync into a valid current phase without pausing others. The full match lasts 315 seconds.
 
 **Main risks.** Resource leaks, asset/collider drift and loading stalls consuming the round.
+
+**Progress.** The server has a reusable `ArenaRun` contract with Dash and Dodge adapters. The room owns the 315-second Short Party timeline, phase changes, roster, and finalization. State snapshots include the current arena, phase, round, remaining time, hazard seed/start tick, and cumulative leaderboard so reconnects can resume without restarting the match. Dodge uses a seeded six-second sequence of low sweepers and marked drop zones; both server authority and client prediction use the same hazard function. Placement points combine both rounds with tied placements sharing average-rank points. Physical browser, slow-load/reconnect, repeated-transition cleanup, and memory validation remain outstanding.
 
 ## Phase 5 — Public matchmaking and parties
 

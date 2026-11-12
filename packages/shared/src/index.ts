@@ -1,5 +1,5 @@
 import { GREYBOX_ARENA, type Box } from './arena.js';
-import { MOVERS } from './movers.js';
+import { MOVERS, type Mover } from './movers.js';
 import { step, type Input, type Player } from './movement.js';
 export { GREYBOX_ARENA, availableSpawn, type Box, type Checkpoint } from './arena.js';
 export { HALF_EXTENTS, overlaps, sweepAxis } from './collision.js';
@@ -8,6 +8,8 @@ export {
   MODE, MOVEMENT, NO_JUMP, resetToSpawn, spawnPlayer, step, type Input, type Player,
 } from './movement.js';
 export { DASH_BOXES, DASH_GATES, DASH_START_Z, dashSpawn, crossesDashGate, type DashStanding } from './dash.js';
+export { DODGE_BOXES, DODGE_MOVERS, dodgeHazards, dodgeSpawn, resolveDodgeHazards, type DodgeHazard } from './dodge.js';
+export type { DodgeStanding, ShortPartyResults, ShortPartyStanding } from './short-party.js';
 export const TICK_MS = 1000 / 30;
 export const CAPACITY = GREYBOX_ARENA.spawns.length;
 export const PRESETS = { quick: 120, short: 315, standard: 540, full: 730 } as const;
@@ -41,14 +43,14 @@ const repaired: Input = { x: 0, z: 0, jump: false, tick: 0 };
  */
 export function simulateInput(
   player: Player, command: Input, dt: number, boxes: readonly Box[] = GREYBOX_ARENA.boxes,
-  spawn?: Pick<Player, 'x' | 'y' | 'z'>, tick = command.tick,
+  spawn?: Pick<Player, 'x' | 'y' | 'z'>, tick = command.tick, movers: readonly Mover[] = MOVERS,
 ): void {
   repaired.x = command.x;
   repaired.z = command.z;
   repaired.jump = command.jump;
   repaired.tick = tick;
   sanitizeInput(repaired);
-  step(player, repaired, dt, boxes, MOVERS, spawn);
+  step(player, repaired, dt, boxes, movers, spawn);
 }
 
 /**

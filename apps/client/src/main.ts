@@ -2,8 +2,8 @@ import * as pc from 'playcanvas';
 import { Client } from '@colyseus/sdk';
 import { Predict, classifyDrift, type Reconciler } from '@colyseus/sdk/predict';
 import {
-  DASH_BOXES, DASH_GATES, GREYBOX_ARENA, MODE, MOVERS, TICK_MS, dashSpawn, moverCenter, moverWarns, nextInputTick,
-  simulateInput, type Box, type Input, type Player,
+  DASH_BOXES, DASH_GATES, DODGE_BOXES, DODGE_MOVERS, GREYBOX_ARENA, MODE, MOVERS, TICK_MS, dashSpawn, dodgeHazards, dodgeSpawn,
+  moverCenter, moverWarns, nextInputTick, resolveDodgeHazards, simulateInput, type Box, type Input, type Player,
 } from '@chaos/shared';
 import { capacity, createButton, joinCode, privateEntry, privatePanel } from './private-ui.js';
 import './style.css';
@@ -68,16 +68,18 @@ function renderBoxes(pieces: readonly Box[]) {
 }
 const playground = renderBoxes(GREYBOX_ARENA.boxes);
 const course = renderBoxes(DASH_BOXES);
+const dodgeCourse = renderBoxes(DODGE_BOXES);
+type DodgeHazardView = { entity: pc.Entity; material: pc.StandardMaterial };
+const dodgeHazardViews: DodgeHazardView[] = Array.from({ length: 2 }, (_, index) => {
+  const entity = box(`dodge-hazard-${index}`, new pc.Color(0.9, 0.25, 0.15), new pc.Vec3(1, 1, 1));
+  const material = entity.render!.meshInstances[0]!.material as pc.StandardMaterial;
+  return { entity, material };
+});
 DASH_GATES.forEach((gate, index) => {
   const marker = box(`dash-gate-${index}`, new pc.Color(1, 0.75, 0.15), new pc.Vec3(gate.halfWidth * 2, 0.05, 0.8));
   marker.setPosition(gate.x, 0.03, gate.z);
   course.push(marker);
 });
-function showCourse(visible: boolean) {
-  for (const entity of course) entity.enabled = visible;
-  for (const entity of playground) entity.enabled = !visible;
-  for (const entity of checkpointEntities) entity.enabled = !visible;
-}
 // Checkpoint pads: thin markers on the floor (they are triggers, not solid).
 const checkpointEntities = GREYBOX_ARENA.checkpoints.map(pad => {
   const [x0, , z0] = pad.min;
@@ -95,6 +97,40 @@ const moverEntities = MOVERS.map(mover => {
   return { mover, entity, material };
 });
 const moverCenterScratch: [number, number, number] = [0, 0, 0];
+const DODGE_WARNING = new pc.Color(1, 0.85, 0.2);
+const DODGE_ACTIVE = new pc.Color(0.95, 0.15, 0.12);
+function showArena(arenaId: string) {
+  const dash = arenaId === 'dash';
+  const dodge = arenaId === 'dodge';
+  for (const entity of course) entity.enabled = dash;
+  for (const entity of playground) entity.enabled = !dash && !dodge;
+  for (const entity of checkpointEntities) entity.enabled = !dash && !dodge;
+  for (const entity of dodgeCourse) entity.enabled = dodge;
+  for (const { entity } of dodgeHazardViews) entity.enabled = dodge;
+  for (const { entity } of moverEntities) entity.enabled = !dodge;
+}
+function poseDodge(seed: number, elapsedTicks: number) {
+  const hazards = dodgeHazards(seed, elapsedTicks);
+  dodgeHazardViews.forEach(({ entity, material }, index) => {
+    const hazard = hazards[index];
+    entity.enabled = Boolean(hazard);
+    if (!hazard) return;
+    const color = hazard.phase === 'warning' ? DODGE_WARNING : DODGE_ACTIVE;
+    entity.setLocalScale(
+      hazard.max[0] - hazard.min[0], hazard.max[1] - hazard.min[1], hazard.max[2] - hazard.min[2],
+    );
+    entity.setPosition(
+      (hazard.min[0] + hazard.max[0]) / 2,
+      (hazard.min[1] + hazard.max[1]) / 2,
+      (hazard.min[2] + hazard.max[2]) / 2,
+    );
+    if (!material.diffuse.equals(color)) {
+      material.diffuse.copy(color);
+      material.emissive.copy(hazard.phase === 'warning' ? new pc.Color(0.4, 0.3, 0) : new pc.Color(0.3, 0, 0));
+      material.update();
+    }
+  });
+}
 /** Poses movers at a (possibly fractional) world tick and shows hazard warnings. */
 function poseMovers(tick: number) {
   for (const { mover, entity, material } of moverEntities) {
@@ -108,7 +144,7 @@ function poseMovers(tick: number) {
     }
   }
 }
-showCourse(false);
+showArena('');
 poseMovers(0);
 app.start();
 const keys = new Set<string>();
@@ -180,8 +216,18 @@ async function connect(action: 'playground' | 'create' | 'join') {
         room.state.guests?.get(room.sessionId)?.racing);
     const predictStep = (ctx: { dt: number }, state: Player, command: Input) => {
       if (!canMove()) return;
-      const racing = isPrivate && room.state.phase !== 'lobby';
-      simulateInput(state, command, ctx.dt, racing ? DASH_BOXES : undefined, racing ? dashSpawn(state.slot) : undefined);
+      const arenaId = isPrivate ? room.state.arenaId : '';
+      const before = { x: state.x, y: state.y, z: state.z };
+      const dodge = arenaId === 'dodge';
+      simulateInput(
+        state, command, ctx.dt,
+        arenaId === 'dash' ? DASH_BOXES : dodge ? DODGE_BOXES : undefined,
+        arenaId === 'dash' ? dashSpawn(state.slot) : dodge ? dodgeSpawn(state.slot) : undefined,
+        undefined, dodge ? DODGE_MOVERS : undefined,
+      );
+      if (dodge) resolveDodgeHazards(
+        state, before, room.state.arenaSeed, room.state.arenaStartTick, state.simTick,
+      );
     };
     // Prediction: the local avatar runs the shared step the moment an input is sent;
     // each server update rewinds to the server's answer and replays unacknowledged inputs.
@@ -195,16 +241,16 @@ async function connect(action: 'playground' | 'create' | 'join') {
     let meSource: Player | undefined;
     const sources = new Map<string, Player>();
     const remoteRespawns = new Map<string, number>();
-    let showingCourse = false;
+    let shownArena = '';
     let patches = 0;
     room.onStateChange(state => {
       patches++;
-      const courseVisible = isPrivate && state.phase !== 'lobby';
-      const sceneChanged = showingCourse !== courseVisible;
-      showingCourse = courseVisible;
+      const arenaId = isPrivate ? state.arenaId : '';
+      const sceneChanged = shownArena !== arenaId;
+      shownArena = arenaId;
       if (isPrivate) {
         panel?.render(state, room.sessionId);
-        showCourse(courseVisible);
+        showArena(arenaId);
       }
       for (const [id, source] of sources) {
         if (id === room.sessionId || state.players.get(id) === source) continue;
@@ -360,7 +406,11 @@ async function connect(action: 'playground' | 'create' | 'join') {
       }
       // Movers are drawn at our own smoothed simulation tick, the same moment our
       // predicted avatar is drawn at, so a rider stays glued to the deck.
-      poseMovers(me && meSource ? predict.value(meSource, 'simTick') : estimateTick());
+      const worldTick = me && meSource ? predict.value(meSource, 'simTick') : estimateTick();
+      poseMovers(worldTick);
+      if (isPrivate && room.state.arenaId === 'dodge') {
+        poseDodge(room.state.arenaSeed, worldTick - room.state.arenaStartTick);
+      }
       // A respawn jumps the predicted position: cut to it instead of gliding for a frame.
       if (me && me.state.respawns !== shownRespawns) {
         if (shownRespawns !== undefined) cutFrames = 2;
@@ -388,7 +438,7 @@ async function connect(action: 'playground' | 'create' | 'join') {
       sessionStorage.removeItem(reconnectKey);
       sessionStorage.removeItem(modeKey);
       panel?.dispose();
-      showCourse(false);
+      showArena('');
       leaveButton.hidden = true;
       leaveButton.onclick = null;
       canvas.removeEventListener('click', lockCamera);

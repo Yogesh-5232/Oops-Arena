@@ -1,8 +1,9 @@
-import type { DashStanding } from '@chaos/shared';
+import type { ShortPartyResults } from '@chaos/shared';
 
-type Guest = { name: string; ready: boolean; connected: boolean; racing: boolean; checkpoints: number };
+type Guest = { name: string; ready: boolean; connected: boolean; racing: boolean; progress: number };
 export type PrivateState = {
   code: string; codeExpiresAt: number; phase: string; hostId: string; capacity: number;
+  arenaId: string; roundIndex: number;
   remainingMs: number; standings: string;
   guests: { get(id: string): Guest | undefined; forEach(visit: (guest: Guest, id: string) => void): void };
 };
@@ -63,29 +64,35 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void)
       guests.hidden = !lobby;
       phaseLabel.textContent = lobby
         ? `Plaza · ${rows.length}/${state.capacity} guests · ${readyCount} ready (4 needed)`
-        : state.phase === 'countdown' ? `Race starts in ${time}s`
-        : state.phase === 'results' ? `Returning to plaza in ${time}s`
-        : !me?.racing ? `Waiting for next race · ${time}s left`
-        : state.phase === 'cooldown' ? `Standings locked · ${time}s left`
-        : `Dash · ${Math.max(0, time - 10)}s to finish · ${Math.min(2, me.checkpoints)}/2 checkpoints`;
+        : state.phase === 'countdown' ? `Short Party starts in ${time}s · Dash`
+        : state.phase === 'transition' ? `Dodge begins in ${time}s`
+        : state.phase === 'results' ? `Final results · returning to plaza in ${time}s`
+        : !me?.racing ? `Waiting for the party · ${time}s left`
+        : state.phase === 'cooldown' ? `Dash standings locked · ${time}s left`
+        : state.arenaId === 'dodge' ? `Dodge Everything · ${time}s · ${me.progress} hits`
+        : `Ultimate Obstacle Dash · ${time}s · ${Math.min(2, me.progress)}/2 checkpoints`;
       readyButton.hidden = !lobby;
       readyButton.disabled = !canAct || !me?.connected;
       readyButton.textContent = me?.ready ? 'Cancel ready' : 'Ready';
       readyButton.onclick = () => ready(!me?.ready);
       startButton.hidden = !lobby || sessionId !== state.hostId;
       startButton.disabled = !canAct || !me?.ready || readyCount < 4;
-      results.hidden = !state.standings || !(state.phase === 'results' || lobby);
+      results.hidden = !state.standings || !(state.phase === 'transition' || state.phase === 'results' || lobby);
+      resultsTitle.textContent = state.phase === 'results'
+        ? 'Short Party results' : state.phase === 'lobby' ? 'Last Short Party results' : 'Standings after Dash';
       if (lastStandings === state.standings) return;
       lastStandings = state.standings;
       standings.replaceChildren();
       if (!state.standings) return;
-      const result = JSON.parse(state.standings) as { interrupted: boolean; rows: DashStanding[] };
-      resultsTitle.textContent = result.interrupted ? 'Race interrupted' : 'Race results';
+      const result = JSON.parse(state.standings) as ShortPartyResults;
+      if (result.interrupted && (state.phase === 'results' || lobby)) resultsTitle.textContent = 'Short Party interrupted';
       for (const row of result.rows) {
         const entry = document.createElement('li');
-        entry.textContent = row.finishMs === null
-          ? `${row.name} — DNF (${row.checkpoints}/2 checkpoints)`
-          : `${row.name} — ${(row.finishMs / 1000).toFixed(2)}s`;
+        const dash = row.dash
+          ? row.dash.finishMs === null ? `Dash DNF ${row.dash.checkpoints}/2` : `Dash ${(row.dash.finishMs / 1000).toFixed(1)}s`
+          : 'Dash pending';
+        const dodge = row.dodge ? row.dodge.active ? `Dodge ${row.dodge.hits} hits` : 'Dodge DNF' : 'Dodge pending';
+        entry.textContent = `${row.place}. ${row.name} — ${row.totalPoints} pts (${dash}, ${dodge})`;
         standings.append(entry);
       }
     },

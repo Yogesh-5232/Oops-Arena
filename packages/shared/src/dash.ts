@@ -11,6 +11,8 @@ export type DashStanding = {
   name: string;
   checkpoints: number;
   finishMs: number | null;
+  /** Monotonic progress through the current gate segment, used for DNF ties. */
+  progress: number;
 };
 
 export const DASH_BOXES: readonly Box[] = [

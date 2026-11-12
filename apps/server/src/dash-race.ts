@@ -9,7 +9,7 @@ export class DashRace {
 
   constructor(roster: readonly string[], name: (id: string) => string) {
     roster.forEach(id => this.racers.set(id, {
-      standing: { name: name(id), checkpoints: 0, finishMs: null }, progress: 0, order: Infinity,
+      standing: { name: name(id), checkpoints: 0, finishMs: null, progress: 0 }, progress: 0, order: Infinity,
     }));
   }
 
@@ -36,9 +36,14 @@ export class DashRace {
     return this.nextFinish === this.racers.size;
   }
 
+  dispose(): void {
+    this.racers.clear();
+    this.nextFinish = 0;
+  }
+
   standings(): DashStanding[] {
     return [...this.racers.values()]
       .sort((a, b) => a.order - b.order || b.standing.checkpoints - a.standing.checkpoints || b.progress - a.progress)
-      .map(racer => ({ ...racer.standing }));
+      .map(racer => ({ ...racer.standing, progress: racer.progress }));
   }
 }
