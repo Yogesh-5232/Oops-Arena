@@ -42,8 +42,8 @@ const WARNING_COLOR = new pc.Color(1, 0.85, 0.2);
 const WARNING_GLOW = new pc.Color(0.4, 0.3, 0);
 const DODGE_ACTIVE = new pc.Color(0.95, 0.15, 0.12);
 const DODGE_GLOW = new pc.Color(0.3, 0, 0);
-/** Dodge never shows more than two hazards at once (one sweeper or two drop zones). */
-const MAX_DODGE_HAZARDS = 2;
+/** Dodge shows at most a sweeper and two drop zones at once (the finale runs both families together). */
+const MAX_DODGE_HAZARDS = 3;
 const LAVA_COLOR = new pc.Color(1, 0.35, 0.05);
 const LAVA_GLOW = new pc.Color(0.6, 0.12, 0);
 const LAVA_RISING = new pc.Color(1, 0.6, 0.1);
@@ -176,7 +176,7 @@ export class ArenaView implements StageView {
       }
     }
     if (this.hazards.length === 0) return;
-    const active = live ? dodgeHazards(live.seed, live.elapsedTicks) : [];
+    const active = live ? dodgeHazards(live.seed, live.elapsedTicks, this.manifest.dodge) : [];
     this.hazards.forEach(({ entity, material }, index) => {
       const hazard = active[index];
       entity.enabled = Boolean(hazard);

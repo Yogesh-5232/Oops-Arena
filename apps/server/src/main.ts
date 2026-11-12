@@ -3,7 +3,7 @@ import { Server, Room, ServerError, matchMaker, type Client } from '@colyseus/co
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { schema, t } from '@colyseus/schema';
 import {
-  ARENA_BUILD, CAPACITY, INPUT_BUFFER, PLAYLISTS, TEAM_RULES, TICK_MS, assignTeams, availableSpawn, clampInputTick, resetToSpawn, simulateInput, spawnPlayer,
+  ARENAS, ARENA_BUILD, CAPACITY, INPUT_BUFFER, PLAYLISTS, TEAM_RULES, TICK_MS, assignTeams, availableSpawn, clampInputTick, resetToSpawn, simulateInput, spawnPlayer,
   type Input, type Player, type PresetId, type RoundArenaId, type RoundStanding,
 } from '@chaos/shared';
 import { DashArenaRun } from './dash-arena.js';
@@ -232,7 +232,8 @@ class PrivateDash extends Playground {
     clock: PartyClock;
     scoreboard: PartyScoreboard;
     seed: number;
-    roundTicks: number;
+    /** Length of each round in ticks; the finale can differ. */
+    roundTicks: number[];
     /** World tick each round starts at; arena hazards are timed from it. */
     startTicks: number[];
     runs: (ArenaRun<RoundStanding[]> | undefined)[];
@@ -291,7 +292,7 @@ class PrivateDash extends Playground {
       this.active = {
         roster, names, teams, clock, scoreboard: new PartyScoreboard([...names.values()], preset, arenas),
         seed: randomInt(1, 0x7fffffff),
-        roundTicks: Math.round(clock.roundMs / TICK_MS),
+        roundTicks: clock.rounds.map(round => Math.round(round.lengthMs / TICK_MS)),
         // Predicted here; startRound re-anchors rounds after the first to the actual tick.
         startTicks: clock.rounds.map(round => startedTick + Math.round((round.startsAt - startedAt) / TICK_MS)),
         runs: arenas.map(() => undefined), started: arenas.map(() => false), locked: arenas.map(() => false),
@@ -312,7 +313,7 @@ class PrivateDash extends Playground {
       this.state.nextArenaId = 'plaza';
       this.state.roundIndex = 0;
       this.state.arenaSeed = this.active.seed;
-      this.state.roundTicks = this.active.roundTicks;
+      this.state.roundTicks = this.active.roundTicks[0]!;
       this.state.standings = JSON.stringify(this.active.scoreboard.snapshot(false));
       this.state.remainingMs = Math.ceil((clock.rounds[0]!.startsAt - startedAt) / 100) * 100;
       roster.forEach(id => {
@@ -345,7 +346,7 @@ class PrivateDash extends Playground {
       name: id => active.names.get(id) ?? id,
       seed: active.seed,
       startTick: active.startTicks[index],
-      roundTicks: active.roundTicks,
+      roundTicks: active.roundTicks[index],
       inactiveIds: active.roster.filter(id => !this.state.guests.get(id)?.connected),
       teams: id => active.teams.get(id) ?? 0,
     });
@@ -353,6 +354,7 @@ class PrivateDash extends Playground {
     active.current = run;
     active.currentIndex = index;
     this.state.arenaStartTick = active.startTicks[index]!;
+    this.state.roundTicks = active.roundTicks[index]!;
     for (const id of active.roster) {
       const guest = this.state.guests.get(id);
       const player = this.state.players.get(id);
@@ -514,6 +516,7 @@ function createRun(arenaId: RoundArenaId): ArenaRun<RoundStanding[]> {
   if (arenaId === 'dash') return new DashArenaRun();
   if (arenaId === 'lava') return new LavaArenaRun();
   if (arenaId === 'team') return new TeamArenaRun();
+  if (arenaId === 'finale') return new DodgeArenaRun(ARENAS.finale);
   return new DodgeArenaRun();
 }
 const IDLE: Input = { x: 0, z: 0, jump: false, tick: 0 };

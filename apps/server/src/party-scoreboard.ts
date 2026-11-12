@@ -6,18 +6,23 @@ import {
 
 type Scoring<Row> = { tie(row: Row): string; summary(row: Row): string };
 
+/** Dodge rounds (the arena and its finale variation) rank by fewest hits; only the label differs. */
+const dodgeScoring = (label: string): Scoring<DodgeStanding> => ({
+  tie: row => row.active ? `hits:${row.hits}` : 'inactive',
+  summary: row => row.active ? `${label} ${row.hits} hits` : `${label} DNF`,
+});
+
 /** Per-arena tie keys (equal keys share placement points) and one-line result summaries. */
-const SCORING: { [Id in RoundArenaId]: Scoring<{ dash: DashStanding; dodge: DodgeStanding; lava: LavaStanding; team: TeamStanding }[Id]> } = {
+const SCORING: { [Id in RoundArenaId]: Scoring<{ dash: DashStanding; dodge: DodgeStanding; lava: LavaStanding; team: TeamStanding; finale: DodgeStanding }[Id]> } = {
   dash: {
     tie: row => row.finishMs === null ? `dnf:${row.checkpoints}:${row.progress.toFixed(6)}` : `finish:${row.finishMs}`,
     summary: row => row.finishMs === null
       ? `Dash DNF ${Math.min(row.checkpoints, DASH_GATES.length - 1)}/${DASH_GATES.length - 1}`
       : `Dash ${(row.finishMs / 1000).toFixed(1)}s`,
   },
-  dodge: {
-    tie: row => row.active ? `hits:${row.hits}` : 'inactive',
-    summary: row => row.active ? `Dodge ${row.hits} hits` : 'Dodge DNF',
-  },
+  dodge: dodgeScoring('Dodge'),
+  // The finale is regular score weighting: same placement points as any round.
+  finale: dodgeScoring('Finale'),
   lava: {
     tie: row => row.active ? `${row.outMs ?? 'alive'}:${row.gate}:${row.falls}` : 'inactive',
     summary: row => !row.active ? 'Lava DNF'

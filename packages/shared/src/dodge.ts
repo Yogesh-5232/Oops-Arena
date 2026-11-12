@@ -28,8 +28,23 @@ export const DODGE_RULES = {
   /** Knockback as a fraction of the shared MOVEMENT knock speed and lift. */
   knockScale: 0.8,
   liftScale: 0.65,
+  /** 'alternate': each wave is one seeded family; 'both': every wave has a sweeper and drop zones together. */
+  families: 'alternate',
 } as const;
-const { waveTicks: WAVE_TICKS, warningStart: WARNING_START, activeStart: ACTIVE_START, activeEnd: ACTIVE_END } = DODGE_RULES;
+
+export type DodgeRules = {
+  readonly waveTicks: number; readonly warningStart: number; readonly activeStart: number; readonly activeEnd: number;
+  readonly playerHalf: readonly [number, number, number]; readonly knockScale: number; readonly liftScale: number;
+  readonly families: 'alternate' | 'both';
+};
+
+/**
+ * Full preset finale: the Dodge arena with four-second waves (a 1.2 s warning
+ * instead of 1.5 s) where the sweeper and both drop zones come together.
+ */
+export const DODGE_FINALE_RULES: DodgeRules = {
+  ...DODGE_RULES, waveTicks: 120, warningStart: 24, activeStart: 60, activeEnd: 108, families: 'both',
+};
 const PLAYER_HALF = DODGE_RULES.playerHalf;
 
 export function dodgeSpawn(slot: number) {
@@ -57,27 +72,38 @@ function dropCenters(seed: number, wave: number): Array<[number, number]> {
   return [[x0, z0], [x1, z1]];
 }
 
-/** Seeded six-second sequence of 1.5-second warnings, two-second hazards, and recovery. */
-export function dodgeHazards(seed: number, elapsedTicks: number): DodgeHazard[] {
+/**
+ * Seeded wave sequence. Standard rules: six-second waves of a 1.5-second
+ * warning, two seconds of one hazard family, and recovery. The finale rules
+ * run shorter waves with both families at once.
+ */
+export function dodgeHazards(seed: number, elapsedTicks: number, rules: DodgeRules = DODGE_RULES): DodgeHazard[] {
   if (elapsedTicks < 0) return [];
-  const wave = Math.floor(elapsedTicks / WAVE_TICKS);
-  const into = elapsedTicks - wave * WAVE_TICKS;
-  if (into < WARNING_START || into >= ACTIVE_END) return [];
-  const warning = into < ACTIVE_START;
-  const family = seeded(seed, wave, 0) % 2 === 0 ? 'sweeper' : 'drop';
-  if (family === 'sweeper') {
-    const progress = warning ? 0 : (into - ACTIVE_START) / (ACTIVE_END - ACTIVE_START - 1);
+  const { waveTicks, warningStart, activeStart, activeEnd } = rules;
+  const wave = Math.floor(elapsedTicks / waveTicks);
+  const into = elapsedTicks - wave * waveTicks;
+  if (into < warningStart || into >= activeEnd) return [];
+  const warning = into < activeStart;
+  const phase = warning ? 'warning' as const : 'active' as const;
+  const both = rules.families === 'both';
+  const sweeper = both || seeded(seed, wave, 0) % 2 === 0;
+  const hazards: DodgeHazard[] = [];
+  if (sweeper) {
+    const progress = warning ? 0 : (into - activeStart) / (activeEnd - activeStart - 1);
     const z = 10 - 20 * progress;
-    return [{
-      id: `sweeper-${wave}`, family, phase: warning ? 'warning' : 'active',
+    hazards.push({
+      id: `sweeper-${wave}`, family: 'sweeper', phase,
       min: [-11, 0, z - 0.45], max: [11, warning ? 0.08 : 0.8, z + 0.45],
-    }];
+    });
   }
-  return dropCenters(seed, wave).map(([x, z], index) => ({
-    id: `drop-${wave}-${index}`, family, phase: warning ? 'warning' as const : 'active' as const,
-    min: [x - 1.5, warning ? 0.02 : 0, z - 1.5] as const,
-    max: [x + 1.5, warning ? 0.08 : 4, z + 1.5] as const,
-  }));
+  if (both || !sweeper) {
+    dropCenters(seed, wave).forEach(([x, z], index) => hazards.push({
+      id: `drop-${wave}-${index}`, family: 'drop', phase,
+      min: [x - 1.5, warning ? 0.02 : 0, z - 1.5],
+      max: [x + 1.5, warning ? 0.08 : 4, z + 1.5],
+    }));
+  }
+  return hazards;
 }
 
 type Position = Pick<Player, 'x' | 'y' | 'z'>;
@@ -107,12 +133,12 @@ function segmentHitsBox(before: Position, after: Position, hazard: DodgeHazard):
 
 /** Same deterministic hit and recovery step is used by prediction and authority. */
 export function resolveDodgeHazards(
-  player: Player, before: Position, seed: number, arenaStartTick: number, worldTick: number,
+  player: Player, before: Position, seed: number, arenaStartTick: number, worldTick: number, rules: DodgeRules = DODGE_RULES,
 ): boolean {
   if (player.shield > 0 || player.mode === MODE.stunned) return false;
   const elapsed = worldTick - arenaStartTick;
-  const now = dodgeHazards(seed, elapsed).filter(hazard => hazard.phase === 'active');
-  const prior = dodgeHazards(seed, elapsed - 1).filter(hazard => hazard.phase === 'active');
+  const now = dodgeHazards(seed, elapsed, rules).filter(hazard => hazard.phase === 'active');
+  const prior = dodgeHazards(seed, elapsed - 1, rules).filter(hazard => hazard.phase === 'active');
   const previousById = new Map(prior.map(hazard => [hazard.id, hazard]));
   const hit = now.find(hazard => {
     const previous = previousById.get(hazard.id);
@@ -136,9 +162,9 @@ export function resolveDodgeHazards(
     dz = direction === 2 ? 1 : direction === 3 ? -1 : 0;
     length = 1;
   }
-  player.vx = dx / length * MOVEMENT.knockSpeed * DODGE_RULES.knockScale;
-  player.vz = dz / length * MOVEMENT.knockSpeed * DODGE_RULES.knockScale;
-  player.vy = MOVEMENT.knockLift * DODGE_RULES.liftScale;
+  player.vx = dx / length * MOVEMENT.knockSpeed * rules.knockScale;
+  player.vz = dz / length * MOVEMENT.knockSpeed * rules.knockScale;
+  player.vy = MOVEMENT.knockLift * rules.liftScale;
   player.mode = MODE.stunned;
   player.modeTicks = 0;
   player.shield = MOVEMENT.shieldTicks;

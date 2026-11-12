@@ -13,7 +13,7 @@ Chaos Playground is a colorful third-person browser party game for groups of fri
 | Standard (Dash, Lava, Dodge) | 8 s | 3 × 160 s | 2 × 15 s | 22 s | 540 s |
 | Full | 8 s | 3 × 170 s + 150 s finale | 3 × 12 s | 26 s | 730 s |
 
-All active windows include countdown, loading after kickoff, gameplay, transitions and results. Queue time is outside the match. The server owns every cutoff. Quick uses a compact layout or accelerated hazard schedule. Validate which modes can meet its pacing before exposing them. Keep outcome-locked time playable. Use an existing arena variation for the Full finale and regular score weighting.
+All active windows include countdown, loading after kickoff, gameplay, transitions and results. Queue time is outside the match. The server owns every cutoff. Quick uses a compact layout or accelerated hazard schedule. Validate which modes can meet its pacing before exposing them. Keep outcome-locked time playable. Use an existing arena variation for the Full finale and regular score weighting. Full runs Dash, Floor Is Lava and Teamwork Madness, then a Dodge Everything finale with faster waves where both hazard families come together.
 
 ## MVP arenas
 

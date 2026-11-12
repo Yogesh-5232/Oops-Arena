@@ -1,6 +1,6 @@
 # Teamwork Madness — technical implementation plan (Phase 6, step 2)
 
-Status 2026-11-12: first playable greybox implemented (cargo variant). Playable as the **Teamwork Only** private preset. Not yet in a multi-round preset. Tuning, 5- and 11-player playtests and the cargo-vs-relay decision remain.
+Status 2026-11-12: first playable greybox implemented (cargo variant). Playable as the **Teamwork Only** private preset. Also the third round of the Full Party preset. Tuning, 5- and 11-player playtests and the cargo-vs-relay decision remain.
 
 Numbers are starting values to tune by feel.
 
@@ -40,4 +40,4 @@ Numbers are starting values to tune by feel.
 1. Playtest 2v2 and 3v2 in browsers. Then explicitly test 5 and 11 players, as the design requires: are roles clear, does the plate hint teach the gate, is idle time acceptable?
 2. Tune course length, crate speeds, latch and rollback against the 105–160 s round lengths.
 3. Decide cargo vs relay handoff from those playtests (see Status-and-Decisions).
-4. Add Teamwork to the Full preset with its finale.
+4. ~~Add Teamwork to the Full preset with its finale.~~ Done: Full runs Teamwork as its third round.

@@ -1,4 +1,4 @@
-import type { ArenaId, Playlist, RoundArenaId } from '@chaos/shared';
+import { roundMsAt, type ArenaId, type Playlist, type RoundArenaId } from '@chaos/shared';
 
 const TEST_SCALE = process.env.NODE_ENV === 'test'
   ? Math.max(0.01, Math.min(1, Number(process.env.SHORT_PARTY_TEST_SCALE ?? 1)))
@@ -16,20 +16,19 @@ export type PartySnapshot = {
   remainingMs: number;
 };
 
-export type ScheduledRound = { arenaId: RoundArenaId; startsAt: number; endsAt: number };
+export type ScheduledRound = { arenaId: RoundArenaId; startsAt: number; endsAt: number; lengthMs: number };
 
 /** Absolute server-owned timeline for a playlist; late ticks never extend a phase or the match. */
 export class PartyClock {
   readonly rounds: readonly ScheduledRound[];
-  readonly roundMs: number;
   readonly endsAt: number;
 
   constructor(readonly startedAt: number, readonly playlist: Playlist) {
-    this.roundMs = scaled(playlist.roundMs);
     let at = startedAt + scaled(playlist.countdownMs);
     this.rounds = playlist.rounds.map((arenaId, index) => {
       if (index > 0) at += scaled(playlist.transitionMs);
-      const round = { arenaId, startsAt: at, endsAt: at + this.roundMs };
+      const lengthMs = scaled(roundMsAt(playlist, index));
+      const round = { arenaId, startsAt: at, endsAt: at + lengthMs, lengthMs };
       at = round.endsAt;
       return round;
     });
