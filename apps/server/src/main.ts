@@ -178,8 +178,16 @@ class Playground extends Room {
   protected beforeTick(_now: number, _serverTick: number) {}
   protected afterTick(_now: number, _serverTick: number) {}
   protected canMove(_id: string): boolean { return true; }
-  protected move(_id: string, player: Player, input: Input, dt: number, _now: number, serverTick: number) {
-    simulateInput(player, input, dt, undefined, undefined, clampInputTick(input.tick, player.simTick, serverTick));
+  protected playerBlockers(id: string): Player[] {
+    const peers: Player[] = [];
+    for (const [peerId, peer] of this.state.players) {
+      if (peerId !== id && this.canMove(peerId)) peers.push(peer);
+    }
+    return peers;
+  }
+  protected move(id: string, player: Player, input: Input, dt: number, _now: number, serverTick: number) {
+    simulateInput(player, input, dt, undefined, undefined, clampInputTick(input.tick, player.simTick, serverTick),
+      undefined, this.playerBlockers(id));
   }
   onJoin(client: Client) {
     const slot = availableSpawn(this.slots.values());
@@ -247,8 +255,7 @@ class PrivateDash extends Playground {
   override async onCreate(options: { capacity?: number; party?: boolean } = {}) {
     this.state.party = options.party === true;
     try {
-      const minimumReady = process.env.PLAYGROUND_TWO_PLAYER_TEST === '1' ? 2 : undefined;
-      this.lobby = new PrivateLobby(options.capacity ?? CAPACITY, this.state.party, minimumReady);
+      this.lobby = new PrivateLobby(options.capacity ?? CAPACITY, this.state.party);
     }
     catch { throw new ServerError(400, 'Capacity must be a whole number from 4 to 12.'); }
     this.roomId = allocateCode();
@@ -446,7 +453,7 @@ class PrivateDash extends Playground {
     const inputTick = clampInputTick(input.tick, player.simTick, serverTick);
     simulateInput(
       player, input, dt, run?.boxes(), run ? run.spawn(player.slot, id) : undefined,
-      inputTick, run?.manifest.movers,
+      inputTick, run?.manifest.movers, this.playerBlockers(id),
     );
     if (!active || !run) return;
     const index = active.currentIndex;

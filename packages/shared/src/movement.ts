@@ -1,5 +1,5 @@
 import { GREYBOX_ARENA, type Box } from './arena.js';
-import { HALF_EXTENTS, overlaps, sweepAxis, type Vec3 } from './collision.js';
+import { HALF_EXTENTS, overlaps, playerTravel, sweepAxis, type PlayerPosition, type Vec3 } from './collision.js';
 import { MOVERS, moverBox, moverCenter, moverKnocks, type Mover } from './movers.js';
 
 /**
@@ -45,6 +45,28 @@ export type Player = {
   /** Spawn slot. */
   slot: number;
 };
+
+/** Put a sampled rider at the mover's pose for another tick, keeping their offset from its center. */
+export function playerAtMoverTick(
+  player: Pick<Player, 'x' | 'y' | 'z' | 'ground' | 'simTick'>, movers: readonly Mover[], tick: number,
+  out: PlayerPosition = { x: 0, y: 0, z: 0 },
+): PlayerPosition {
+  const mover = movers[player.ground - 1];
+  out.x = player.x;
+  out.y = player.y;
+  out.z = player.z;
+  if (mover && tick !== player.simTick) {
+    moverCenter(mover, player.simTick, sampleFrom);
+    moverCenter(mover, tick, sampleTo);
+    out.x += sampleTo[0] - sampleFrom[0];
+    out.y += sampleTo[1] - sampleFrom[1];
+    out.z += sampleTo[2] - sampleFrom[2];
+  }
+  return out;
+}
+
+const sampleFrom: Vec3 = [0, 0, 0];
+const sampleTo: Vec3 = [0, 0, 0];
 
 /** Tuning, in units and ticks (30 per second). Starting values to tune by feel. */
 export const MOVEMENT = {
@@ -171,11 +193,13 @@ function resolveMover(player: Player, mover: Mover, before: Box, now: Box, tick:
 export function step(
   player: Player, input: Input, dt: number, boxes: readonly Box[] = GREYBOX_ARENA.boxes,
   movers: readonly Mover[] = MOVERS, spawn?: Pick<Player, 'x' | 'y' | 'z'>,
+  peers: readonly Player[] = [],
 ): void {
   const m = MOVEMENT;
   const tick = input.tick;
   const previousTick = player.simTick;
   player.simTick = tick;
+  const blockers = peers.map(peer => peer.ground ? playerAtMoverTick(peer, movers, tick) : peer);
 
   // Ride: a player standing on a mover moves with it first.
   const riding = movers[player.ground - 1];
@@ -240,16 +264,20 @@ export function step(
   position[0] = player.x;
   position[1] = player.y;
   position[2] = player.z;
-  if (sweepAxis(position, 0, player.vx * dt, world) >= 0) player.vx = 0;
-  if (sweepAxis(position, 2, player.vz * dt, world) >= 0) player.vz = 0;
+  const dx = playerTravel(position, 0, player.vx * dt, blockers);
+  if (sweepAxis(position, 0, dx, world) >= 0 || dx !== player.vx * dt) player.vx = 0;
+  const dz = playerTravel(position, 2, player.vz * dt, blockers);
+  if (sweepAxis(position, 2, dz, world) >= 0 || dz !== player.vz * dt) player.vz = 0;
   const falling = player.vy <= 0;
-  const below = sweepAxis(position, 1, player.vy * dt, world);
+  const dy = playerTravel(position, 1, player.vy * dt, blockers);
+  const below = sweepAxis(position, 1, dy, world);
+  const verticalContact = below >= 0 || dy !== player.vy * dt;
   player.x = position[0];
   player.y = position[1];
   player.z = position[2];
-  player.grounded = below >= 0 && falling;
+  player.grounded = verticalContact && falling;
   player.ground = player.grounded && below >= boxes.length ? below - boxes.length + 1 : 0;
-  if (below >= 0) player.vy = 0; // landed, or bumped a ceiling
+  if (verticalContact) player.vy = 0; // landed, or bumped a ceiling
 
   if (player.grounded) player.coyote = m.coyoteTicks;
   else if (player.coyote > 0) player.coyote--;

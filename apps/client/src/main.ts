@@ -8,6 +8,7 @@ import {
 import { ArenaStage } from './arena-stage.js';
 import { ArenaView, TEAM_COLORS, createMaterial, materialCount, solid } from './arena-view.js';
 import { capacity, createButton, createPartyButton, joinCode, privateEntry, privatePanel } from './private-ui.js';
+import { RemotePose } from './remote-pose.js';
 import './style.css';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!;
@@ -38,28 +39,72 @@ function avatarMaterial(color: pc.Color) {
 const LOCAL_COLOR = new pc.Color(1, 0.8, 0.2);
 const REMOTE_COLOR = new pc.Color(0.7, 0.35, 0.9);
 const NOSE_COLOR = new pc.Color(0.15, 0.15, 0.2);
-const avatarBodies = new WeakMap<pc.Entity, pc.Entity>();
-/** A 1 x 2 x 1 body with a small "nose" on its front face so facing is visible. */
+const avatarColorParts = new WeakMap<pc.Entity, pc.Entity>();
+const toyUrl = new URL('./assets/oops-arena-base-toy-rigged.glb', import.meta.url).href;
+const avatarAnimations = new WeakMap<pc.Entity, pc.AnimComponentLayer>();
+const toyGraph = new pc.AnimStateGraph({
+  layers: [{
+    name: 'Base',
+    states: [{ name: 'START' }, { name: 'Idle', loop: true }, { name: 'Run', loop: true }],
+    transitions: [{ from: 'START', to: 'Idle' }],
+  }],
+  parameters: {},
+});
+let toy: { container: pc.ContainerResource; idle: pc.AnimTrack; run: pc.AnimTrack } | undefined;
+
+function showToy(root: pc.Entity, material: pc.Material) {
+  if (!toy) return;
+  const model = toy.container.instantiateRenderEntity();
+  // The model is two units tall with a floor origin. The player root is at the collider center.
+  model.setLocalPosition(0, -1, 0);
+  root.addChild(model);
+  model.addComponent('anim');
+  const anim = model.anim!;
+  anim.loadStateGraph(toyGraph);
+  anim.assignAnimation('Idle', toy.idle);
+  anim.assignAnimation('Run', toy.run);
+  const layer = anim.baseLayer!;
+  layer.play('Idle');
+  avatarAnimations.set(root, layer);
+  root.findByName('Avatar placeholder')?.destroy();
+  const marker = solid('Player marker', material, new pc.Vec3(0.2, 0.2, 0.2), root);
+  avatarColorParts.set(root, marker);
+  marker.setLocalPosition(0, 1.32, 0);
+  marker.setLocalEulerAngles(45, 0, 45);
+}
+
 function avatar(id: string, color: pc.Color) {
   const root = new pc.Entity(id);
   app.root.addChild(root);
-  avatarBodies.set(root, solid(`${id}-body`, avatarMaterial(color), new pc.Vec3(1, 2, 1), root));
-  solid(`${id}-nose`, avatarMaterial(NOSE_COLOR), new pc.Vec3(0.4, 0.4, 0.4), root).setLocalPosition(0, 0.5, 0.6);
+  if (toy) {
+    showToy(root, avatarMaterial(color));
+  } else {
+    const placeholder = new pc.Entity('Avatar placeholder');
+    root.addChild(placeholder);
+    avatarColorParts.set(root, solid('Body', avatarMaterial(color), new pc.Vec3(1, 2, 1), placeholder));
+    solid('Nose', avatarMaterial(NOSE_COLOR), new pc.Vec3(0.4, 0.4, 0.4), placeholder).setLocalPosition(0, 0.5, 0.6);
+  }
   return root;
 }
-/** Recolors an avatar's body (team colors in team arenas); materials are shared, so this allocates nothing new after the first use. */
+/** Recolors the player marker or placeholder body using the shared team materials. */
 function colorAvatar(entity: pc.Entity, color: pc.Color) {
-  const body = avatarBodies.get(entity);
+  const part = avatarColorParts.get(entity);
   const material = avatarMaterial(color);
-  if (body?.render && body.render.material !== material) body.render.material = material;
+  if (part?.render && part.render.material !== material) part.render.material = material;
 }
 const facing = new pc.Quat();
 const tilt = new pc.Quat();
 /** Turns an avatar toward its facing; tips it forward while diving and back when knocked (display only). */
-function poseAvatar(entity: pc.Entity, state: Pick<Player, 'faceX' | 'faceZ' | 'mode'>) {
+function poseAvatar(entity: pc.Entity, state: Player) {
   facing.setFromEulerAngles(0, Math.atan2(state.faceX, state.faceZ) * pc.math.RAD_TO_DEG, 0);
   tilt.setFromEulerAngles(state.mode === MODE.diving ? 60 : state.mode === MODE.stunned ? -50 : 0, 0, 0);
   entity.setRotation(facing.mul(tilt));
+  const animation = avatarAnimations.get(entity);
+  if (animation) {
+    const running = state.grounded && state.mode === MODE.normal && Math.hypot(state.vx, state.vz) > 0.2;
+    const next = running ? 'Run' : 'Idle';
+    if (animation.activeState !== next) animation.transition(next, 0.12);
+  }
 }
 // One arena tree on screen and at most one more prefetched for the next transition.
 // Each is built from the same manifest the simulation collides with.
@@ -78,6 +123,24 @@ window.addEventListener('keydown', event => {
 });
 window.addEventListener('keyup', event => keys.delete(event.code));
 const avatars = new Map<string, pc.Entity>();
+app.assets.loadFromUrl(toyUrl, 'container', (error, asset) => {
+  if (error || !asset?.resource) {
+    console.warn('Could not load the wind-up toy avatar.', error);
+    return;
+  }
+  const container = asset.resource as pc.ContainerResource;
+  const idle = container.animations.find(clip => clip.resource?.name === 'Idle')?.resource;
+  const run = container.animations.find(clip => clip.resource?.name === 'Run')?.resource;
+  if (!idle || !run) {
+    console.warn('The wind-up toy is missing its Idle or Run clip.');
+    return;
+  }
+  toy = { container, idle, run };
+  for (const entity of avatars.values()) {
+    const material = avatarColorParts.get(entity)?.render?.material;
+    if (material) showToy(entity, material);
+  }
+});
 const env = (import.meta as ImportMeta & { env: { DEV: boolean; VITE_SERVER_URL?: string } }).env;
 // Development builds accept ?server=<url> to route through the lag relay (npm run lag).
 // Production ignores it, so a shared link cannot point players at another server.
@@ -111,7 +174,6 @@ function followCamera(x: number, y: number, z: number) {
 /** How far in the past other players are drawn: two 50 ms server updates of headroom. */
 const REMOTE_DELAY_MS = 100;
 /** A jump bigger than this between updates is a teleport (respawn), drawn as a cut, not a glide. */
-const TELEPORT_DISTANCE = 3;
 async function connect(action: 'playground' | 'create' | 'create-party' | 'join') {
   if (button.disabled) return;
   button.disabled = true;
@@ -148,11 +210,14 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
       value => room.send('preset', value),
       () => room.sendUnreliable('renew-invite'),
     ) : undefined;
-    const canMove = () => !isPrivate || room.state.phase === 'lobby' ||
-      ((room.state.phase === 'round' || room.state.phase === 'cooldown') &&
-        room.state.guests?.get(room.sessionId)?.racing);
+    const canMove = (id: string) => {
+      if (!isPrivate) return true;
+      const guest = room.state.guests?.get(id);
+      return guest?.connected && (room.state.phase === 'lobby' ||
+        (guest.racing && (room.state.phase === 'round' || room.state.phase === 'cooldown')));
+    };
     const predictStep = (ctx: { dt: number }, state: Player, command: Input) => {
-      if (!canMove()) return;
+      if (!canMove(room.sessionId)) return;
       // The same manifest the server's arena run collides with.
       const arena = arenaManifest(isPrivate ? room.state.arenaId : 'plaza');
       const before = { x: state.x, y: state.y, z: state.z };
@@ -160,7 +225,11 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
       // Team arenas collide with the server's crates at their latest replicated positions.
       const boxes = teamArena ? teamWorld(room.state.cargo0, room.state.cargo1) : arena.boxes;
       const team = Math.max(0, room.state.guests?.get(room.sessionId)?.team ?? 0);
-      simulateInput(state, command, ctx.dt, boxes, arena.spawn?.(state.slot, team), undefined, arena.movers);
+      const peers: Player[] = [];
+      room.state.players.forEach((peer: Player, id: string) => {
+        if (id !== room.sessionId && canMove(id)) peers.push(peer);
+      });
+      simulateInput(state, command, ctx.dt, boxes, arena.spawn?.(state.slot, team), undefined, arena.movers, peers);
       if (arena.hazards === 'dodge') resolveDodgeHazards(
         state, before, room.state.arenaSeed, room.state.arenaStartTick, state.simTick, arena.dodge,
       );
@@ -172,13 +241,12 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
     // Small disagreements fade out over ~50 ms; jumps over 3 units (teleports) cut instantly.
     // Other players are drawn REMOTE_DELAY_MS in the past, gliding between the two
     // server updates around that moment instead of jumping 20 times a second.
-    const predict = Predict.get(room, { mode: 'lerp', delay: REMOTE_DELAY_MS });
-    const remoteSmoothing = { mode: 'lerp', snap: TELEPORT_DISTANCE } as const;
-    const remoteFields = { x: remoteSmoothing, y: remoteSmoothing, z: remoteSmoothing };
+    const predict = Predict.get(room);
     let me: Reconciler<Player, Input> | undefined;
     let meSource: Player | undefined;
     const sources = new Map<string, Player>();
-    const remoteRespawns = new Map<string, number>();
+    const remotePoses = new Map<string, RemotePose>();
+    const remotePosition = { x: 0, y: 0, z: 0 };
     let shownArena = 'plaza';
     let patches = 0;
     room.onStateChange(state => {
@@ -191,10 +259,7 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
         panel?.render(state, room.sessionId);
         arenas.prefetch(state.nextArenaId);
       }
-      for (const [id, source] of sources) {
-        if (id === room.sessionId || state.players.get(id) === source) continue;
-        predict.detach(source);
-      }
+      const sampledAt = performance.now();
       state.players.forEach((player: Player, id: string) => {
         const previous = sources.get(id);
         sources.set(id, player);
@@ -208,12 +273,9 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
         const team = isPrivate && arenaId === 'team' ? state.guests?.get(id)?.team ?? -1 : -1;
         colorAvatar(entity, id === room.sessionId ? LOCAL_COLOR : team >= 0 ? TEAM_COLORS[team]! : REMOTE_COLOR);
         if (id !== room.sessionId) {
-          if (previous !== player || sceneChanged || remoteRespawns.get(id) !== player.respawns) {
-            // Reattaching seeds a fresh interpolation buffer at the new position.
-            if (previous === player) predict.detach(player);
-            predict.attach(player, remoteFields);
-            remoteRespawns.set(id, player.respawns);
-          }
+          let pose = remotePoses.get(id);
+          if (!pose || previous !== player || sceneChanged) remotePoses.set(id, pose = new RemotePose());
+          pose.push(player, sampledAt);
           return;
         }
         localAvatar = entity;
@@ -240,7 +302,7 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
         entity.destroy();
         avatars.delete(id);
         sources.delete(id);
-        remoteRespawns.delete(id);
+        remotePoses.delete(id);
       }
     });
     let connected = true;
@@ -348,7 +410,7 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
       }
       // Movers are drawn at our own smoothed simulation tick, the same moment our
       // predicted avatar is drawn at, so a rider stays glued to the deck.
-      const worldTick = me && meSource ? predict.value(meSource, 'simTick') : estimateTick();
+      const worldTick = meSource && canMove(room.sessionId) ? predict.value(meSource, 'simTick') : estimateTick();
       // Hazards only run during a round itself; the server scores nothing outside it.
       const roundLive = isPrivate && room.state.arenaId !== 'plaza' &&
         (room.state.phase === 'round' || room.state.phase === 'cooldown');
@@ -361,9 +423,18 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
         shownRespawns = me.state.respawns;
       }
       // One read for everyone: predicted for the local avatar, interpolated for the rest.
+      const remoteTime = performance.now() - REMOTE_DELAY_MS;
+      const movers = arenaManifest(shownArena).movers;
       for (const [id, entity] of avatars) {
         const source = sources.get(id);
         if (!source) continue;
+        if (entity !== localAvatar) {
+          if (remotePoses.get(id)?.read(remoteTime, movers, worldTick, remotePosition)) {
+            entity.setPosition(remotePosition.x, remotePosition.y, remotePosition.z);
+          }
+          poseAvatar(entity, source);
+          continue;
+        }
         const exact = entity === localAvatar && cutFrames > 0 ? me?.state : undefined;
         const x = exact ? exact.x : predict.value(source, 'x');
         const y = exact ? exact.y : predict.value(source, 'y');
@@ -401,7 +472,7 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
       me = undefined;
       meSource = undefined;
       sources.clear();
-      remoteRespawns.clear();
+      remotePoses.clear();
       for (const entity of avatars.values()) entity.destroy();
       avatars.clear();
       status.textContent = isPrivate && code !== 4000

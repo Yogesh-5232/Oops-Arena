@@ -11,6 +11,27 @@ const HALF_SEGMENT = HALF_EXTENTS[1] - RADIUS;
 const EPSILON = 1e-6;
 
 export type Vec3 = [number, number, number];
+export type PlayerPosition = { x: number; y: number; z: number };
+const PLAYER_AXES = ['x', 'y', 'z'] as const;
+
+/** Limit one axis of motion against other upright capsules. */
+export function playerTravel(position: Vec3, axis: 0 | 1 | 2, delta: number, players: readonly PlayerPosition[]): number {
+  const direction = Math.sign(delta);
+  let travel = Math.abs(delta);
+  for (const player of players) {
+    if (travel === 0) break;
+    const x = position[0] - player.x;
+    const y = Math.max(Math.abs(position[1] - player.y) - 2 * HALF_SEGMENT, 0);
+    const z = position[2] - player.z;
+    const radiusSquared = (2 * RADIUS) ** 2 - (axis === 0 ? y * y + z * z : axis === 1 ? x * x + z * z : x * x + y * y);
+    if (radiusSquared <= EPSILON * EPSILON) continue;
+    const half = Math.sqrt(radiusSquared) + (axis === 1 ? 2 * HALF_SEGMENT : 0);
+    const ahead = (player[PLAYER_AXES[axis]] - position[axis]) * direction;
+    // Shared checkpoints can spawn players in contact. Let either player move out.
+    if (ahead > 0) travel = Math.min(travel, Math.max(ahead - half, 0));
+  }
+  return direction * travel;
+}
 
 /**
  * Moves `position` along one axis by up to `delta`, stopping flush against the

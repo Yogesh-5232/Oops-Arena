@@ -34,7 +34,7 @@ Loading, disconnects and clock adjustments cannot extend a match. Preserve the c
 
 ## Admission and identity
 
-Private rooms use random six-character codes, collision checks, expiry and rate-limited lookup. Guest identity and short-lived seat credentials authorize access. Require at least four connected ready players and count reservations toward the 12-seat maximum. Transfer host rights after a bounded grace period and check settings permissions server-side.
+Private rooms use random six-character codes, collision checks, expiry and rate-limited lookup. Guest identity and short-lived seat credentials authorize access. Require at least two connected ready players and count reservations toward the 12-seat maximum. Transfer host rights after a bounded grace period and check settings permissions server-side.
 
 Public matchmaking starts with one Short playlist and one region. Reserve entire parties atomically, expire incomplete admissions and lock new entry at countdown. Reconnect reservations are distinct from ordinary joins. Reserve dropped players for up to 30 seconds, neutralize their input and release held objects. Reload recovery uses a scoped token. Intentional leaves and expired reservations release resources.
 

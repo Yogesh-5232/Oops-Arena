@@ -19,6 +19,28 @@ function run(player: Player, command: Input, ticks: number, boxes?: readonly Box
 }
 const flatFloor: Box = { id: 'f', kind: 'floor', min: [-50, -1, -50], max: [50, 0, 50] };
 
+test('players stop at each other, slide past a shoulder and clear players below them', () => {
+  const peer = playerAt(0, 1, 0);
+  const player = playerAt(-2, 1, 0);
+  for (let tick = 0; tick < 20; tick++) {
+    step(player, input(1, 0, false, tick), DT, [flatFloor], [], undefined, [peer]);
+  }
+  assert.equal(player.x, -1);
+  assert.equal(player.vx, 0);
+  step(player, input(0, 1), DT, [flatFloor], [], undefined, [peer]);
+  assert.equal(player.z, 0.2);
+
+  const above = playerAt(-0.1, 3, 0);
+  step(above, input(1), DT, [flatFloor], [], undefined, [peer]);
+  assert.ok(above.x > peer.x);
+  assert.ok(above.y >= 2.99);
+  assert.equal(above.grounded, true);
+
+  const sharedSpawn = playerAt(0, 1, 0);
+  step(sharedSpawn, input(-1), DT, [flatFloor], [], undefined, [peer]);
+  assert.equal(sharedSpawn.x, -0.2, 'shared respawn pads must let overlapping players separate');
+});
+
 test('capsule sweeps stop at rounded corners without treating them as square', () => {
   const box: Box = { id: 'corner', kind: 'wall', min: [0, 0, 0], max: [1, 2, 1] };
   const beside: [number, number, number] = [-2, 1, -0.4];
