@@ -8,7 +8,11 @@ export class PrivateLobby {
   private readonly seats = new Map<string, Seat>();
   private roster?: readonly string[];
 
-  constructor(readonly capacity = CAPACITY, private readonly keepPartyTogether = false) {
+  constructor(
+    readonly capacity = CAPACITY,
+    private readonly keepPartyTogether = false,
+    readonly minimumReady = MIN_PLAYERS,
+  ) {
     if (!Number.isInteger(capacity) || capacity < MIN_PLAYERS || capacity > CAPACITY) {
       throw new RangeError(`Capacity must be between ${MIN_PLAYERS} and ${CAPACITY}`);
     }
@@ -52,7 +56,7 @@ export class PrivateLobby {
     const host = this.seats.get(requester);
     if (!host?.connected || !host.ready) return;
     const eligible = [...this.seats].filter(([, seat]) => seat.connected && seat.ready);
-    if (eligible.length < MIN_PLAYERS) return;
+    if (eligible.length < this.minimumReady) return;
     if (this.keepPartyTogether && eligible.length !== this.seats.size) return;
     this.roster = Object.freeze(eligible.map(([id]) => id));
     return this.roster;

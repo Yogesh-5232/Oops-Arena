@@ -31,7 +31,7 @@ const Avatar = schema({
 const Guest = schema({ name: t.string(), connected: t.boolean(), ready: t.boolean(), racing: t.boolean(), progress: t.number() });
 const State = schema({
   tick: t.uint32(), players: t.map(Avatar), guests: t.map(Guest), phase: t.string(), hostId: t.string(),
-  capacity: t.number(), party: t.boolean(), code: t.string(), codeExpiresAt: t.float64(), remainingMs: t.number(), standings: t.string(),
+  capacity: t.number(), minimumReady: t.number(), party: t.boolean(), code: t.string(), codeExpiresAt: t.float64(), remainingMs: t.number(), standings: t.string(),
   arenaId: t.string(), nextArenaId: t.string(), roundIndex: t.uint8(), arenaSeed: t.uint32(), arenaStartTick: t.uint32(),
   preset: t.string(), roundTicks: t.uint32(),
 });
@@ -236,7 +236,10 @@ class PrivateDash extends Playground {
 
   override async onCreate(options: { capacity?: number; party?: boolean } = {}) {
     this.state.party = options.party === true;
-    try { this.lobby = new PrivateLobby(options.capacity ?? CAPACITY, this.state.party); }
+    try {
+      const minimumReady = process.env.PLAYGROUND_TWO_PLAYER_TEST === '1' ? 2 : undefined;
+      this.lobby = new PrivateLobby(options.capacity ?? CAPACITY, this.state.party, minimumReady);
+    }
     catch { throw new ServerError(400, 'Capacity must be a whole number from 4 to 12.'); }
     this.roomId = allocateCode();
     this.state.code = this.roomId;
@@ -246,6 +249,7 @@ class PrivateDash extends Playground {
     this.state.arenaId = 'plaza';
     this.state.nextArenaId = PLAYLISTS.short.rounds[0];
     this.state.capacity = this.maxClients = this.lobby.capacity;
+    this.state.minimumReady = this.lobby.minimumReady;
     await this.setPrivate();
     super.onCreate();
     this.onMessage('renew-invite', client => {

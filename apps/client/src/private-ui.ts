@@ -2,7 +2,7 @@ import { ARENAS, DASH_GATES, LAVA_GATES, PLAYLISTS, playlistMs, type PartyResult
 
 type Guest = { name: string; ready: boolean; connected: boolean; racing: boolean; progress: number };
 export type PrivateState = {
-  code: string; codeExpiresAt: number; phase: string; hostId: string; capacity: number; party: boolean;
+  code: string; codeExpiresAt: number; phase: string; hostId: string; capacity: number; minimumReady: number; party: boolean;
   arenaId: string; roundIndex: number; preset: string;
   remainingMs: number; standings: string;
   guests: { get(id: string): Guest | undefined; forEach(visit: (guest: Guest, id: string) => void): void };
@@ -96,7 +96,7 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void,
       guests.hidden = !lobby;
       const playlist = playlistOf(state.preset);
       const round = `Round ${state.roundIndex + 1}/${playlist.rounds.length}`;
-      const requiredReady = state.party ? Math.max(4, rows.length) : 4;
+      const requiredReady = state.party ? Math.max(state.minimumReady, rows.length) : state.minimumReady;
       phaseLabel.textContent = lobby
         ? `${state.party ? 'Group party' : 'Plaza'} · ${playlist.name} · ${rows.length}/${state.capacity} guests · ${readyCount} ready (${requiredReady} needed)`
         : state.phase === 'countdown' ? `${playlist.name} starts in ${time}s · ${arenaName(playlist.rounds[0])}`
