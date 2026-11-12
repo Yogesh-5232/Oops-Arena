@@ -3,12 +3,12 @@ import { Server, Room, ServerError, matchMaker, type Client } from '@colyseus/co
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { schema, t } from '@colyseus/schema';
 import {
-  CAPACITY, INPUT_BUFFER, TICK_MS, availableSpawn, clampInputTick, resetToSpawn, simulateInput, spawnPlayer,
+  ARENA_BUILD, CAPACITY, INPUT_BUFFER, TICK_MS, availableSpawn, clampInputTick, resetToSpawn, simulateInput, spawnPlayer,
   type DashStanding, type DodgeStanding, type Input, type Player,
 } from '@chaos/shared';
 import { DashArenaRun } from './dash-arena.js';
 import { DodgeArenaRun } from './dodge-arena.js';
-import type { ArenaRun } from './arena-run.js';
+import { LIVE_ARENA_RUNS, type ArenaRun } from './arena-run.js';
 import { PrivateLobby } from './private-lobby.js';
 import { ShortPartyClock } from './short-party-clock.js';
 import { ShortScoreboard } from './short-scoreboard.js';
@@ -31,10 +31,23 @@ const Guest = schema({ name: t.string(), connected: t.boolean(), ready: t.boolea
 const State = schema({
   tick: t.uint32(), players: t.map(Avatar), guests: t.map(Guest), phase: t.string(), hostId: t.string(),
   capacity: t.number(), code: t.string(), codeExpiresAt: t.float64(), remainingMs: t.number(), standings: t.string(),
-  arenaId: t.string(), roundIndex: t.uint8(), arenaSeed: t.uint32(), arenaStartTick: t.uint32(),
+  arenaId: t.string(), nextArenaId: t.string(), roundIndex: t.uint8(), arenaSeed: t.uint32(), arenaStartTick: t.uint32(),
 });
 /** One numbered input per client tick. float64 keeps client and server values bit-identical. */
 const MoveInput = schema({ x: t.float64(), z: t.float64(), jump: t.boolean(), tick: t.uint32() });
+
+/**
+ * Admission check: a client built from different shared code (protocol or
+ * arena manifests) would predict against rules the server does not run, so it
+ * is turned away with a reload prompt instead of joining and rubber-banding.
+ * Reconnects reuse an admitted seat within the same server process and skip it.
+ */
+function checkBuild(options: unknown): void {
+  const build = (options as { build?: unknown } | undefined)?.build;
+  if (build !== ARENA_BUILD) {
+    throw new ServerError(426, 'This page is out of date with the game server. Reload to play.');
+  }
+}
 
 function teleportPlayer(player: Player, spawn?: Pick<Player, 'x' | 'y' | 'z'>): void {
   resetToSpawn(player, spawn);
@@ -82,7 +95,13 @@ class Playground extends Room {
   private credits = new Map<string, number>();
   private waitAllowance = new Map<string, number>();
   private inputAges = process.env.PLAYGROUND_TELEMETRY === '1' ? new Map<string, number>() : undefined;
-  onCreate() {
+  /** Runs in matchmaking, before a seat is reserved, for create and every join. */
+  static override async onAuth(_token: string, options: unknown) {
+    checkBuild(options);
+    return true;
+  }
+  onCreate(options?: unknown) {
+    checkBuild(options);
     let tickMs = 0;
     let inputBacklog = 0;
     // Room totals: player-ticks spent waiting for a late input, player-ticks
@@ -95,6 +114,7 @@ class Playground extends Room {
         seats: this.state.players.size, connected: this.clients.length, tickMs, inputBacklog,
         inputAgeMs: this.inputAges?.get(client.sessionId) ?? null,
         waitedTicks, idleTicks, catchUps,
+        build: ARENA_BUILD, arenaRuns: LIVE_ARENA_RUNS.size, heapUsed: process.memoryUsage().heapUsed,
       }));
     }
     this.setPatchRate(50);
@@ -206,7 +226,8 @@ class PrivateDash extends Playground {
     interrupted: boolean;
   };
 
-  override async onCreate(options: { capacity?: number } = {}) {
+  override async onCreate(options: { capacity?: number; build?: string } = {}) {
+    checkBuild(options);
     try { this.lobby = new PrivateLobby(options.capacity ?? CAPACITY); }
     catch { throw new ServerError(400, 'Capacity must be a whole number from 4 to 12.'); }
     this.roomId = allocateCode();
@@ -214,9 +235,11 @@ class PrivateDash extends Playground {
     this.codeDeadline = performance.now() + CODE_LIFETIME_MS;
     this.state.codeExpiresAt = Date.now() + CODE_LIFETIME_MS;
     this.state.phase = 'lobby';
+    this.state.arenaId = 'plaza';
+    this.state.nextArenaId = 'dash';
     this.state.capacity = this.maxClients = this.lobby.capacity;
     await this.setPrivate();
-    super.onCreate();
+    super.onCreate(options);
     this.onMessage('ready', (client, value: unknown) => {
       if (typeof value === 'boolean' && this.lobby.setReady(client.sessionId, value)) {
         this.state.guests.get(client.sessionId)!.ready = value;
@@ -247,6 +270,7 @@ class PrivateDash extends Playground {
       void this.lock();
       this.state.phase = 'countdown';
       this.state.arenaId = 'dash';
+      this.state.nextArenaId = 'plaza';
       this.state.roundIndex = 0;
       this.state.arenaSeed = seed;
       this.state.arenaStartTick = startedTick + Math.round((clock.dashStartsAt - startedAt) / TICK_MS);
@@ -304,7 +328,8 @@ class PrivateDash extends Playground {
   }
 
   onDispose() {
-    this.active?.arena?.dispose();
+    this.active?.dash?.dispose();
+    this.active?.dodge?.dispose();
     this.active = undefined;
     CODES.delete(this.roomId);
   }
@@ -394,16 +419,21 @@ class PrivateDash extends Playground {
     const snapshot = clock.snapshot(now, active.dashLocked);
     this.state.phase = snapshot.phase;
     this.state.arenaId = snapshot.arenaId;
+    this.state.nextArenaId = snapshot.nextArenaId;
     this.state.roundIndex = snapshot.roundIndex;
     this.state.remainingMs = snapshot.remainingMs;
     if (snapshot.phase !== 'complete') return;
 
     this.state.standings = JSON.stringify(active.scoreboard.snapshot(active.interrupted));
     this.lobby.finishMatch(roster);
+    // Both runs are disposed at their cutoffs; this only guards a skipped cutoff.
+    active.dash?.dispose();
+    active.dodge?.dispose();
     this.active = undefined;
     for (const guest of this.state.guests.values()) guest.ready = guest.racing = false;
     for (const avatar of this.state.players.values()) teleportPlayer(avatar);
-    this.state.arenaId = '';
+    this.state.arenaId = 'plaza';
+    this.state.nextArenaId = 'dash';
     this.state.phase = 'lobby';
     this.state.remainingMs = 0;
     void this.unlock();

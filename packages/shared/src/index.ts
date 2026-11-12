@@ -9,6 +9,9 @@ export {
 } from './movement.js';
 export { DASH_BOXES, DASH_GATES, DASH_START_Z, dashSpawn, crossesDashGate, type DashStanding } from './dash.js';
 export { DODGE_BOXES, DODGE_MOVERS, dodgeHazards, dodgeSpawn, resolveDodgeHazards, type DodgeHazard } from './dodge.js';
+export {
+  ARENAS, ARENA_BUILD, PROTOCOL_VERSION, arenaManifest, buildId, type ArenaId, type ArenaManifest, type ArenaMarker,
+} from './manifests.js';
 export type { DodgeStanding, ShortPartyResults, ShortPartyStanding } from './short-party.js';
 export const TICK_MS = 1000 / 30;
 export const CAPACITY = GREYBOX_ARENA.spawns.length;

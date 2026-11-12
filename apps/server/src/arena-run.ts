@@ -1,4 +1,4 @@
-import type { Box, Mover, Player } from '@chaos/shared';
+import type { ArenaManifest, Box, Mover, Player } from '@chaos/shared';
 
 export type ArenaSpawn = Pick<Player, 'x' | 'y' | 'z'>;
 export type ArenaPosition = Pick<Player, 'x' | 'y' | 'z'>;
@@ -13,6 +13,7 @@ export type ArenaSetup = {
 
 /** Server-owned gameplay for one arena within a match. Phase timing stays with the room. */
 export interface ArenaRun<Result> {
+  readonly manifest: ArenaManifest;
   readonly collisionBoxes: readonly Box[];
   readonly movers: readonly Mover[];
   setup(context: ArenaSetup): void;
@@ -26,3 +27,10 @@ export interface ArenaRun<Result> {
   /** Release all run-owned state. Must be safe to call more than once. */
   dispose(): void;
 }
+
+/**
+ * Every arena run between setup and dispose, process-wide. Only the active
+ * arena of a match is ever in here, so its size is bounded by the number of
+ * running matches; diagnostics and tests read it to catch leaked runs.
+ */
+export const LIVE_ARENA_RUNS = new Set<ArenaRun<unknown>>();

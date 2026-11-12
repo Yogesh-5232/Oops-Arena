@@ -1,10 +1,11 @@
-import { DODGE_BOXES, DODGE_MOVERS, dodgeSpawn, resolveDodgeHazards, type DodgeStanding, type Player } from '@chaos/shared';
-import type { ArenaPosition, ArenaRun, ArenaSetup, ArenaSpawn } from './arena-run.js';
+import { ARENAS, resolveDodgeHazards, type DodgeStanding, type Player } from '@chaos/shared';
+import { LIVE_ARENA_RUNS, type ArenaPosition, type ArenaRun, type ArenaSetup, type ArenaSpawn } from './arena-run.js';
 
 /** Seeded Dodge Everything run. The room controls its start and cutoff. */
 export class DodgeArenaRun implements ArenaRun<DodgeStanding[]> {
-  readonly collisionBoxes = DODGE_BOXES;
-  readonly movers = DODGE_MOVERS;
+  readonly manifest = ARENAS.dodge;
+  readonly collisionBoxes = ARENAS.dodge.boxes;
+  readonly movers = ARENAS.dodge.movers;
   private readonly racers = new Map<string, DodgeStanding>();
   private lifecycle: 'new' | 'active' | 'disposed' = 'new';
   private seed = 0;
@@ -17,11 +18,12 @@ export class DodgeArenaRun implements ArenaRun<DodgeStanding[]> {
     const inactive = new Set(context.inactiveIds ?? []);
     context.roster.forEach(id => this.racers.set(id, { name: context.name(id), hits: 0, active: !inactive.has(id) }));
     this.lifecycle = 'active';
+    LIVE_ARENA_RUNS.add(this);
   }
 
   spawn(slot: number): ArenaSpawn {
     this.assertActive();
-    return dodgeSpawn(slot);
+    return this.manifest.spawn(slot);
   }
 
   /** Hazard positions are a pure function of seed and world tick. */
@@ -59,6 +61,7 @@ export class DodgeArenaRun implements ArenaRun<DodgeStanding[]> {
     if (this.lifecycle === 'disposed') return;
     this.racers.clear();
     this.lifecycle = 'disposed';
+    LIVE_ARENA_RUNS.delete(this);
   }
 
   private assertActive(): void {

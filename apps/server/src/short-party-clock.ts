@@ -11,11 +11,15 @@ export const SHORT_TIMING = {
 };
 
 export type ShortPartyPhase = 'countdown' | 'round' | 'cooldown' | 'transition' | 'results' | 'complete';
-export type ShortPartyArenaId = 'dash' | 'dodge' | '';
+import type { ArenaId } from '@chaos/shared';
+
+export type ShortPartyArenaId = ArenaId;
 
 export type ShortPartySnapshot = {
   phase: ShortPartyPhase;
   arenaId: ShortPartyArenaId;
+  /** The arena clients should load in the background now; '' when nothing is next. */
+  nextArenaId: ShortPartyArenaId | '';
   roundIndex: number;
   remainingMs: number;
 };
@@ -36,7 +40,7 @@ export class ShortPartyClock {
     this.endsAt = this.dodgeEndsAt + SHORT_TIMING.resultsMs;
   }
 
-  acceptsScoring(arenaId: ShortPartyArenaId, now: number): boolean {
+  acceptsScoring(arenaId: string, now: number): boolean {
     if (arenaId === 'dash') return now >= this.dashStartsAt && now < this.dashEndsAt;
     if (arenaId === 'dodge') return now >= this.dodgeStartsAt && now < this.dodgeEndsAt;
     return false;
@@ -44,17 +48,17 @@ export class ShortPartyClock {
 
   snapshot(now: number, dashLocked: boolean): ShortPartySnapshot {
     const remaining = (end: number) => Math.max(0, Math.ceil((end - now) / 100) * 100);
-    if (now < this.dashStartsAt) return { phase: 'countdown', arenaId: 'dash', roundIndex: 0, remainingMs: remaining(this.dashStartsAt) };
+    if (now < this.dashStartsAt) return { phase: 'countdown', arenaId: 'dash', nextArenaId: 'plaza', roundIndex: 0, remainingMs: remaining(this.dashStartsAt) };
     if (now < this.dashEndsAt) return {
-      phase: dashLocked ? 'cooldown' : 'round', arenaId: 'dash', roundIndex: 0, remainingMs: remaining(this.dashEndsAt),
+      phase: dashLocked ? 'cooldown' : 'round', arenaId: 'dash', nextArenaId: 'plaza', roundIndex: 0, remainingMs: remaining(this.dashEndsAt),
     };
     if (now < this.dodgeStartsAt) return {
-      phase: 'transition', arenaId: '', roundIndex: 1, remainingMs: remaining(this.dodgeStartsAt),
+      phase: 'transition', arenaId: 'plaza', nextArenaId: 'dodge', roundIndex: 1, remainingMs: remaining(this.dodgeStartsAt),
     };
     if (now < this.dodgeEndsAt) return {
-      phase: 'round', arenaId: 'dodge', roundIndex: 1, remainingMs: remaining(this.dodgeEndsAt),
+      phase: 'round', arenaId: 'dodge', nextArenaId: 'plaza', roundIndex: 1, remainingMs: remaining(this.dodgeEndsAt),
     };
-    if (now < this.endsAt) return { phase: 'results', arenaId: 'dodge', roundIndex: 1, remainingMs: remaining(this.endsAt) };
-    return { phase: 'complete', arenaId: '', roundIndex: 1, remainingMs: 0 };
+    if (now < this.endsAt) return { phase: 'results', arenaId: 'dodge', nextArenaId: 'plaza', roundIndex: 1, remainingMs: remaining(this.endsAt) };
+    return { phase: 'complete', arenaId: 'plaza', nextArenaId: '', roundIndex: 1, remainingMs: 0 };
   }
 }
