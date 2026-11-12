@@ -83,9 +83,16 @@ test('repeated Short Party arena cycles settle to a stable heap', { skip: !gc &&
 
 test('every playlist matches its preset length and names the arena to prefetch', () => {
   for (const [id, playlist] of Object.entries(PLAYLISTS)) {
-    assert.equal(playlistMs(playlist), PRESETS[id as keyof typeof PRESETS] * 1000, `${id} length`);
+    const preset = playlist.rounds.length === 1 ? 'quick' : id as 'short' | 'standard';
+    assert.equal(playlistMs(playlist), PRESETS[preset] * 1000, `${id} length`);
     const clock = new PartyClock(1000, playlist);
     assert.equal(clock.endsAt - clock.startedAt, playlistMs(playlist));
+    if (preset === 'quick') {
+      const [round] = clock.rounds;
+      assert.equal(round!.arenaId, id);
+      assert.equal(clock.snapshot(round!.endsAt, () => false).phase, 'results');
+      assert.equal(clock.snapshot(clock.endsAt, () => false).arenaId, 'plaza');
+    }
   }
   const clock = new PartyClock(1000, PLAYLISTS.standard);
   const at = (now: number) => {
