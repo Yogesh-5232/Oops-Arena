@@ -1,10 +1,11 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { PLAYLISTS, PRESETS, playlistMs, spawnPlayer } from '@chaos/shared';
+import { PLAYLISTS, PRESETS, TEAM_RULES, laneX, playlistMs, plateCenter, spawnPlayer, teamSpawn } from '@chaos/shared';
 import { liveArenaRuns } from './arena-run.js';
 import { DashArenaRun } from './dash-arena.js';
 import { DodgeArenaRun } from './dodge-arena.js';
 import { LavaArenaRun } from './lava-arena.js';
+import { TeamArenaRun } from './team-arena.js';
 import { PartyClock } from './party-clock.js';
 import { PartyScoreboard } from './party-scoreboard.js';
 
@@ -12,7 +13,7 @@ const roster = ['a', 'b', 'c', 'd'];
 const setup = { owner: 'room-a', roster, name: (id: string) => id, seed: 7, startTick: 0, roundTicks: 4800 };
 
 test('a disposed arena run performs no gameplay and cannot be revived', () => {
-  for (const run of [new DashArenaRun(), new DodgeArenaRun(), new LavaArenaRun()]) {
+  for (const run of [new DashArenaRun(), new DodgeArenaRun(), new LavaArenaRun(), new TeamArenaRun()]) {
     assert.throws(() => run.update(0, 0), /not active/);
     run.setup(setup);
     assert.equal(liveArenaRuns('room-a'), 1);
@@ -62,6 +63,14 @@ function cycle() {
   for (let tick = 0; tick < 30; tick++) for (const id of roster) lava.playerStep(id, player, player, 0, tick);
   lava.rank();
   lava.dispose();
+  const team = new TeamArenaRun();
+  team.setup(setup);
+  for (let tick = 0; tick < 30; tick++) {
+    team.update(tick, 0);
+    for (const id of roster) team.playerStep(id, player, player, 0, tick, { x: 0, z: -1 });
+  }
+  team.rank();
+  team.dispose();
 }
 
 test('repeated Short Party arena cycles release every run', () => {
@@ -155,4 +164,63 @@ test('Lava ranks survivors above eliminated players, later eliminations higher, 
   assert.deepEqual(points, { a: 5, b: 10, c: 10, d: 2 });
   assert.equal(rows.find(row => row.name === 'b')!.rounds[1]!.summary, 'Lava summit');
   assert.equal(rows[0]!.rounds[0], null, 'unscored rounds stay empty');
+});
+
+test('Teamwork: pushers move their crate, plates open gates, and the delivering team shares first place', () => {
+  const run = new TeamArenaRun();
+  const teams = new Map([['a', 0], ['b', 0], ['c', 1], ['d', 1]]);
+  run.setup({ ...setup, teams: id => teams.get(id)! });
+  assert.deepEqual(run.spawn(0, 'c').x > 0, true, 'Red spawns in the east lane');
+  assert.equal(run.spawn(0, 'a').x < 0, true, 'Blue spawns in the west lane');
+  const pusher = spawnPlayer(0);
+  const holder = spawnPlayer(1);
+  const push = { x: 0, z: -1 };
+  let tick = 0;
+  const play = (ticks: number, hold: boolean) => {
+    for (let end = tick + ticks; tick < end; tick++) {
+      run.update(tick, 0);
+      const { cargo0 } = run.objective();
+      // Blue's pusher stays flush behind its crate; the holder stands on the next gate's plate when asked.
+      Object.assign(pusher, { x: laneX(0), y: 1, z: cargo0 + TEAM_RULES.cargoHalf[2] + 0.5, grounded: true, ground: 0 });
+      run.playerStep('a', pusher, pusher, tick * 33, tick, push);
+      const gate = TEAM_RULES.gates.findIndex(z => cargo0 > z - TEAM_RULES.cargoHalf[2]);
+      const [x, z] = plateCenter(0, Math.max(0, gate));
+      Object.assign(holder, hold ? { x, y: 1, z, grounded: true } : teamSpawn(1, 0));
+      run.playerStep('b', holder, holder, tick * 33, tick, { x: 0, z: 0 });
+    }
+  };
+  play(300, false);
+  assert.equal(run.objective().cargo0, TEAM_RULES.gates[0] + TEAM_RULES.cargoHalf[2], 'stopped at the first closed gate');
+  assert.equal(run.objective().cargo1, TEAM_RULES.cargoStartZ, 'Red did not move');
+  play(1, true);
+  assert.notEqual(run.objective().gates, 0, 'standing on the plate opens the gate');
+  play(1500, true);
+  assert.equal(run.allFinished, true, 'Blue delivered');
+  const ranked = run.rank();
+  assert.deepEqual(ranked.map(row => row.name), ['a', 'b', 'c', 'd']);
+  assert.ok(ranked[0]!.deliveredMs! > 0);
+  const board = new PartyScoreboard(roster, 'team', ['team']);
+  board.record(0, ranked);
+  const points = Object.fromEntries(board.snapshot(false).rows.map(row => [row.name, row.rounds[0]!.points]));
+  assert.equal(points.a, points.b, 'teammates share points');
+  assert.equal(points.c, points.d);
+  assert.ok(points.a! > points.c!);
+  run.dispose();
+});
+
+test('Teamwork caps counted pushers at the smaller team size', () => {
+  const run = new TeamArenaRun();
+  const teams = new Map([['a', 0], ['b', 0], ['c', 0], ['d', 1]]);
+  run.setup({ ...setup, teams: id => teams.get(id)! });
+  const z = TEAM_RULES.cargoStartZ + TEAM_RULES.cargoHalf[2] + 0.5;
+  run.update(0, 0);
+  for (const [id, x] of [['a', -5], ['b', -5.8], ['c', -4.2]] as const) {
+    const player = spawnPlayer(0);
+    Object.assign(player, { x, y: 1, z, grounded: true });
+    run.playerStep(id, player, player, 0, 0, { x: 0, z: -1 });
+  }
+  run.update(1, 0);
+  const moved = TEAM_RULES.cargoStartZ - run.objective().cargo0;
+  assert.ok(Math.abs(moved - TEAM_RULES.pushSpeed[1] / 30) < 1e-9, 'three Blue pushers count as one against a team of one');
+  run.dispose();
 });

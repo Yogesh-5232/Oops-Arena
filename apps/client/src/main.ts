@@ -2,10 +2,11 @@ import * as pc from 'playcanvas';
 import { Client } from '@colyseus/sdk';
 import { Predict, classifyDrift, type Reconciler } from '@colyseus/sdk/predict';
 import {
-  ARENA_BUILD, MODE, TICK_MS, arenaManifest, nextInputTick, resolveDodgeHazards, resolveLava, simulateInput, type Input, type Player,
+  ARENA_BUILD, MODE, TICK_MS, arenaManifest, nextInputTick, resolveCargo, resolveDodgeHazards, resolveLava, simulateInput, teamWorld,
+  type Input, type Player,
 } from '@chaos/shared';
 import { ArenaStage } from './arena-stage.js';
-import { ArenaView, createMaterial, materialCount, solid } from './arena-view.js';
+import { ArenaView, TEAM_COLORS, createMaterial, materialCount, solid } from './arena-view.js';
 import { capacity, createButton, createPartyButton, joinCode, privateEntry, privatePanel } from './private-ui.js';
 import './style.css';
 
@@ -37,13 +38,20 @@ function avatarMaterial(color: pc.Color) {
 const LOCAL_COLOR = new pc.Color(1, 0.8, 0.2);
 const REMOTE_COLOR = new pc.Color(0.7, 0.35, 0.9);
 const NOSE_COLOR = new pc.Color(0.15, 0.15, 0.2);
+const avatarBodies = new WeakMap<pc.Entity, pc.Entity>();
 /** A 1 x 2 x 1 body with a small "nose" on its front face so facing is visible. */
 function avatar(id: string, color: pc.Color) {
   const root = new pc.Entity(id);
   app.root.addChild(root);
-  solid(`${id}-body`, avatarMaterial(color), new pc.Vec3(1, 2, 1), root);
+  avatarBodies.set(root, solid(`${id}-body`, avatarMaterial(color), new pc.Vec3(1, 2, 1), root));
   solid(`${id}-nose`, avatarMaterial(NOSE_COLOR), new pc.Vec3(0.4, 0.4, 0.4), root).setLocalPosition(0, 0.5, 0.6);
   return root;
+}
+/** Recolors an avatar's body (team colors in team arenas); materials are shared, so this allocates nothing new after the first use. */
+function colorAvatar(entity: pc.Entity, color: pc.Color) {
+  const body = avatarBodies.get(entity);
+  const material = avatarMaterial(color);
+  if (body?.render && body.render.material !== material) body.render.material = material;
 }
 const facing = new pc.Quat();
 const tilt = new pc.Quat();
@@ -148,11 +156,16 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
       // The same manifest the server's arena run collides with.
       const arena = arenaManifest(isPrivate ? room.state.arenaId : 'plaza');
       const before = { x: state.x, y: state.y, z: state.z };
-      simulateInput(state, command, ctx.dt, arena.boxes, arena.spawn?.(state.slot), undefined, arena.movers);
+      const teamArena = arena.hazards === 'team';
+      // Team arenas collide with the server's crates at their latest replicated positions.
+      const boxes = teamArena ? teamWorld(room.state.cargo0, room.state.cargo1) : arena.boxes;
+      const team = Math.max(0, room.state.guests?.get(room.sessionId)?.team ?? 0);
+      simulateInput(state, command, ctx.dt, boxes, arena.spawn?.(state.slot, team), undefined, arena.movers);
       if (arena.hazards === 'dodge') resolveDodgeHazards(
         state, before, room.state.arenaSeed, room.state.arenaStartTick, state.simTick,
       );
       else if (arena.hazards === 'lava') resolveLava(state, state.simTick - room.state.arenaStartTick, room.state.roundTicks);
+      else if (teamArena) resolveCargo(state, room.state.cargo0, room.state.cargo1);
     };
     // Prediction: the local avatar runs the shared step the moment an input is sent;
     // each server update rewinds to the server's answer and replays unacknowledged inputs.
@@ -191,6 +204,9 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
           entity.setPosition(player.x, player.y, player.z);
           avatars.set(id, entity);
         }
+        // Teammates and opponents wear their team color in team arenas; you stay yellow.
+        const team = isPrivate && arenaId === 'team' ? state.guests?.get(id)?.team ?? -1 : -1;
+        colorAvatar(entity, id === room.sessionId ? LOCAL_COLOR : team >= 0 ? TEAM_COLORS[team]! : REMOTE_COLOR);
         if (id !== room.sessionId) {
           if (previous !== player || sceneChanged || remoteRespawns.get(id) !== player.respawns) {
             // Reattaching seeds a fresh interpolation buffer at the new position.
@@ -338,7 +354,7 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
         (room.state.phase === 'round' || room.state.phase === 'cooldown');
       arenas.current?.pose(worldTick, roundLive ? {
         seed: room.state.arenaSeed, elapsedTicks: worldTick - room.state.arenaStartTick, roundTicks: room.state.roundTicks,
-      } : undefined);
+      } : undefined, isPrivate ? { cargo: [room.state.cargo0, room.state.cargo1], gates: room.state.gates } : undefined);
       // A respawn jumps the predicted position: cut to it instead of gliding for a frame.
       if (me && me.state.respawns !== shownRespawns) {
         if (shownRespawns !== undefined) cutFrames = 2;

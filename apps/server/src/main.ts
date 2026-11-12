@@ -3,12 +3,13 @@ import { Server, Room, ServerError, matchMaker, type Client } from '@colyseus/co
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { schema, t } from '@colyseus/schema';
 import {
-  ARENA_BUILD, CAPACITY, INPUT_BUFFER, PLAYLISTS, TICK_MS, availableSpawn, clampInputTick, resetToSpawn, simulateInput, spawnPlayer,
+  ARENA_BUILD, CAPACITY, INPUT_BUFFER, PLAYLISTS, TEAM_RULES, TICK_MS, assignTeams, availableSpawn, clampInputTick, resetToSpawn, simulateInput, spawnPlayer,
   type Input, type Player, type PresetId, type RoundArenaId, type RoundStanding,
 } from '@chaos/shared';
 import { DashArenaRun } from './dash-arena.js';
 import { DodgeArenaRun } from './dodge-arena.js';
 import { LavaArenaRun } from './lava-arena.js';
+import { TeamArenaRun } from './team-arena.js';
 import { liveArenaRuns, type ArenaRun } from './arena-run.js';
 import { PrivateLobby } from './private-lobby.js';
 import { PartyClock } from './party-clock.js';
@@ -28,12 +29,17 @@ const Avatar = schema({
   faceX: t.float64(), faceZ: t.float64(),
   slot: t.uint8(),
 });
-const Guest = schema({ name: t.string(), connected: t.boolean(), ready: t.boolean(), racing: t.boolean(), progress: t.number() });
+/** `team` is the guest's side in team arenas for the current match, or -1. */
+const Guest = schema({
+  name: t.string(), connected: t.boolean(), ready: t.boolean(), racing: t.boolean(), progress: t.number(), team: t.int8(),
+});
 const State = schema({
   tick: t.uint32(), players: t.map(Avatar), guests: t.map(Guest), phase: t.string(), hostId: t.string(),
   capacity: t.number(), minimumReady: t.number(), party: t.boolean(), code: t.string(), codeExpiresAt: t.float64(), remainingMs: t.number(), standings: t.string(),
   arenaId: t.string(), nextArenaId: t.string(), roundIndex: t.uint8(), arenaSeed: t.uint32(), arenaStartTick: t.uint32(),
   preset: t.string(), roundTicks: t.uint32(),
+  // Teamwork Madness: each lane's crate z (server-owned, clients collide with it) and the open-gate bit mask.
+  cargo0: t.float64(), cargo1: t.float64(), gates: t.uint8(),
 });
 /** One numbered input per client tick. float64 keeps client and server values bit-identical. */
 const MoveInput = schema({ x: t.float64(), z: t.float64(), jump: t.boolean(), tick: t.uint32() });
@@ -216,10 +222,13 @@ function allocateCode(): string {
 class PrivateDash extends Playground {
   private lobby!: PrivateLobby;
   private sequence = 0;
+  /** Matches started in this room; rotates who takes the extra team seat with an odd roster. */
+  private matches = 0;
   private codeDeadline = 0;
   private active?: {
     roster: readonly string[];
     names: Map<string, string>;
+    teams: Map<string, number>;
     clock: PartyClock;
     scoreboard: PartyScoreboard;
     seed: number;
@@ -246,6 +255,7 @@ class PrivateDash extends Playground {
     this.renewInvite();
     this.state.phase = 'lobby';
     this.state.preset = 'short';
+    this.state.cargo0 = this.state.cargo1 = TEAM_RULES.cargoStartZ;
     this.state.arenaId = 'plaza';
     this.state.nextArenaId = PLAYLISTS.short.rounds[0];
     this.state.capacity = this.maxClients = this.lobby.capacity;
@@ -277,8 +287,9 @@ class PrivateDash extends Playground {
       const names = new Map<string, string>();
       roster.forEach(id => names.set(id, this.state.guests.get(id)!.name));
       const arenas = clock.rounds.map(round => round.arenaId);
+      const teams = assignTeams(roster, this.matches);
       this.active = {
-        roster, names, clock, scoreboard: new PartyScoreboard([...names.values()], preset, arenas),
+        roster, names, teams, clock, scoreboard: new PartyScoreboard([...names.values()], preset, arenas),
         seed: randomInt(1, 0x7fffffff),
         roundTicks: Math.round(clock.roundMs / TICK_MS),
         // Predicted here; startRound re-anchors rounds after the first to the actual tick.
@@ -294,6 +305,7 @@ class PrivateDash extends Playground {
         this.lobby.finishMatch(roster);
         throw error;
       }
+      this.matches++;
       void this.lock();
       this.state.phase = 'countdown';
       this.state.arenaId = arenas[0]!;
@@ -303,7 +315,11 @@ class PrivateDash extends Playground {
       this.state.roundTicks = this.active.roundTicks;
       this.state.standings = JSON.stringify(this.active.scoreboard.snapshot(false));
       this.state.remainingMs = Math.ceil((clock.rounds[0]!.startsAt - startedAt) / 100) * 100;
-      roster.forEach(id => { this.state.guests.get(id)!.racing = true; });
+      roster.forEach(id => {
+        const guest = this.state.guests.get(id)!;
+        guest.racing = true;
+        guest.team = teams.get(id) ?? -1;
+      });
     });
   }
 
@@ -331,7 +347,9 @@ class PrivateDash extends Playground {
       startTick: active.startTicks[index],
       roundTicks: active.roundTicks,
       inactiveIds: active.roster.filter(id => !this.state.guests.get(id)?.connected),
+      teams: id => active.teams.get(id) ?? 0,
     });
+    this.publishObjective(run);
     active.current = run;
     active.currentIndex = index;
     this.state.arenaStartTick = active.startTicks[index]!;
@@ -339,8 +357,16 @@ class PrivateDash extends Playground {
       const guest = this.state.guests.get(id);
       const player = this.state.players.get(id);
       if (guest) guest.progress = 0;
-      if (player) teleportPlayer(player, run.spawn(player.slot));
+      if (player) teleportPlayer(player, run.spawn(player.slot, id));
     }
+  }
+
+  private publishObjective(run: ArenaRun<RoundStanding[]>) {
+    const objective = run.objective?.();
+    if (!objective) return;
+    this.state.cargo0 = objective.cargo0;
+    this.state.cargo1 = objective.cargo1;
+    this.state.gates = objective.gates;
   }
 
   private renewInvite() {
@@ -362,6 +388,7 @@ class PrivateDash extends Playground {
     guest.connected = true;
     guest.ready = guest.racing = false;
     guest.progress = 0;
+    guest.team = -1;
     this.state.guests.set(client.sessionId, guest);
     this.state.hostId = this.lobby.hostId ?? '';
   }
@@ -397,7 +424,10 @@ class PrivateDash extends Playground {
 
   protected override beforeTick(now: number, serverTick: number) {
     this.updateMatch(now, serverTick);
-    this.active?.current?.update(serverTick, now);
+    const run = this.active?.current;
+    if (!run) return;
+    run.update(serverTick, now);
+    this.publishObjective(run);
   }
   protected override afterTick(now: number, serverTick: number) { this.updateMatch(now, serverTick); }
 
@@ -413,14 +443,14 @@ class PrivateDash extends Playground {
     const run = active?.current;
     const inputTick = clampInputTick(input.tick, player.simTick, serverTick);
     simulateInput(
-      player, input, dt, run?.manifest.boxes, run ? run.spawn(player.slot) : undefined,
+      player, input, dt, run?.boxes(), run ? run.spawn(player.slot, id) : undefined,
       inputTick, run?.manifest.movers,
     );
     if (!active || !run) return;
     const index = active.currentIndex;
     if (!active.locked[index] && active.clock.acceptsScoring(index, now)) {
       this.state.guests.get(id)!.progress = run.playerStep(
-        id, before, player, now - active.clock.rounds[index]!.startsAt, inputTick,
+        id, before, player, now - active.clock.rounds[index]!.startsAt, inputTick, input,
       );
     }
   }
@@ -465,7 +495,12 @@ class PrivateDash extends Playground {
     // Runs are disposed at their cutoffs; this only guards a skipped cutoff.
     active.runs.forEach(run => run?.dispose());
     this.active = undefined;
-    for (const guest of this.state.guests.values()) guest.ready = guest.racing = false;
+    for (const guest of this.state.guests.values()) {
+      guest.ready = guest.racing = false;
+      guest.team = -1;
+    }
+    this.state.cargo0 = this.state.cargo1 = TEAM_RULES.cargoStartZ;
+    this.state.gates = 0;
     for (const avatar of this.state.players.values()) teleportPlayer(avatar);
     this.state.arenaId = 'plaza';
     this.state.nextArenaId = PLAYLISTS[this.state.preset as PresetId].rounds[0];
@@ -478,6 +513,7 @@ class PrivateDash extends Playground {
 function createRun(arenaId: RoundArenaId): ArenaRun<RoundStanding[]> {
   if (arenaId === 'dash') return new DashArenaRun();
   if (arenaId === 'lava') return new LavaArenaRun();
+  if (arenaId === 'team') return new TeamArenaRun();
   return new DodgeArenaRun();
 }
 const IDLE: Input = { x: 0, z: 0, jump: false, tick: 0 };

@@ -20,8 +20,12 @@ export {
 } from './lava.js';
 export {
   PLAYLISTS, playlistMs, type DodgeStanding, type LavaStanding, type PartyResults, type PartyStanding, type Playlist,
-  type PresetId, type RoundArenaId, type RoundResult, type RoundStanding,
+  type PresetId, type RoundArenaId, type RoundResult, type RoundStanding, type TeamStanding,
 } from './short-party.js';
+export {
+  TEAM_BOXES, TEAM_GATES, TEAM_MOVERS, TEAM_NAMES, TEAM_RULES, assignTeams, cargoBox, cargoProgress, gateBit, isPushing, laneX,
+  newCargo, plateCenter, plateUnder, resolveCargo, stepCargo, teamBoxes, teamSpawn, teamWorld, type Cargo,
+} from './team.js';
 export const CAPACITY = GREYBOX_ARENA.spawns.length;
 export const PRESETS = { quick: 120, short: 315, standard: 540, full: 730 } as const;
 /**

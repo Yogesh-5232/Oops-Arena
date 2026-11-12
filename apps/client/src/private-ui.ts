@@ -1,9 +1,11 @@
-import { ARENAS, DASH_GATES, LAVA_GATES, PLAYLISTS, playlistMs, type PartyResults, type PresetId } from '@chaos/shared';
+import {
+  ARENAS, DASH_GATES, LAVA_GATES, PLAYLISTS, TEAM_NAMES, cargoProgress, playlistMs, type PartyResults, type PresetId,
+} from '@chaos/shared';
 
-type Guest = { name: string; ready: boolean; connected: boolean; racing: boolean; progress: number };
+type Guest = { name: string; ready: boolean; connected: boolean; racing: boolean; progress: number; team: number };
 export type PrivateState = {
   code: string; codeExpiresAt: number; phase: string; hostId: string; capacity: number; minimumReady: number; party: boolean;
-  arenaId: string; roundIndex: number; preset: string;
+  arenaId: string; roundIndex: number; preset: string; cargo0: number; cargo1: number;
   remainingMs: number; standings: string;
   guests: { get(id: string): Guest | undefined; forEach(visit: (guest: Guest, id: string) => void): void };
 };
@@ -25,7 +27,7 @@ const resultsTitle = document.querySelector<HTMLElement>('#results-title')!;
 const standings = document.querySelector<HTMLElement>('#standings')!;
 const presetPicker = document.querySelector<HTMLSelectElement>('#preset')!;
 const presetLabel = presetPicker.closest('label')!;
-const SHORT_NAMES = { dash: 'Dash', lava: 'Lava', dodge: 'Dodge' };
+const SHORT_NAMES = { dash: 'Dash', lava: 'Lava', dodge: 'Dodge', team: 'Teamwork' };
 
 for (const [id, playlist] of Object.entries(PLAYLISTS)) {
   const seconds = playlistMs(playlist) / 1000;
@@ -37,8 +39,17 @@ for (const [id, playlist] of Object.entries(PLAYLISTS)) {
 const playlistOf = (preset: string) => PLAYLISTS[(Object.hasOwn(PLAYLISTS, preset) ? preset : 'short') as PresetId];
 const arenaName = (id: string | undefined) => id ? ARENAS[id as keyof typeof ARENAS]?.name ?? id : '';
 /** HUD line for the local racer during a round, from the arena's public progress number. */
-function roundLine(arenaId: string, time: number, progress: number): string {
+function roundLine(state: PrivateState, time: number, me: Guest): string {
+  const { arenaId } = state;
+  const { progress } = me;
   const name = arenaName(arenaId);
+  if (arenaId === 'team') {
+    const own = me.team === 1 ? 1 : 0;
+    const percent = (z: number) => `${Math.floor(cargoProgress(z) * 100)}%`;
+    const crates = [state.cargo0, state.cargo1];
+    return `${name} · ${time}s · Team ${TEAM_NAMES[own]} crate ${percent(crates[own]!)} vs ${TEAM_NAMES[1 - own]} ${percent(crates[1 - own]!)}` +
+      ' · push together; stand on the green plate past a red gate to open it';
+  }
   if (arenaId === 'dodge') return `${name} · ${time}s · ${progress} hits`;
   if (arenaId === 'lava') return progress < 0
     ? `${name} · ${time}s · caught by the lava, watching from the balcony`
@@ -104,7 +115,7 @@ export function privatePanel(ready: (value: boolean) => void, start: () => void,
         : state.phase === 'results' ? `Final results · returning to plaza in ${time}s`
         : !me?.racing ? `Waiting for the party · ${time}s left`
         : state.phase === 'cooldown' ? `${arenaName(state.arenaId)} standings locked · ${time}s left`
-        : roundLine(state.arenaId, time, me.progress);
+        : roundLine(state, time, me);
       presetLabel.hidden = !lobby;
       presetPicker.disabled = !canAct || !host;
       // Follow the server only when its preset changes, so the host's pick is not undone by patches sent before the server applied it.

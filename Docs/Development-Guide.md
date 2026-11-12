@@ -30,4 +30,6 @@ Every join and room creation must send `{ build: ARENA_BUILD }` (from `@chaos/sh
 
 Run `npm run smoke:private` after building to exercise the two-round private flow, reconnection, combined standings, rematch, and interruption. It uses port 2600 by default and runs the match clock at 10% speed in its test server (about one minute including a rematch). Set `PRIVATE_SMOKE_PORT` to avoid a port conflict.
 
+Run `npm run smoke:team` after building to play a Teamwork Madness round with four SDK bots (2v2, one pusher and one plate holder per team) on a half-speed clock until a crate is delivered. To watch one in a browser, start a server, then run `TEAM_SMOKE_SERVER=http://localhost:<port> TEAM_SMOKE_HUMANS=1 npm run smoke:team`. Join the printed code and press Ready. Choose **Teamwork Only** in the host's preset picker to play it with people.
+
 Choose **Create group party** to keep the group together. Friends use **Join party** and enter the code. Once at least four members are in the party, the host can start when every member is connected and ready. A dropped member keeps their seat during the reconnect window and must ready up again if they reconnect before kickoff. The party returns to the same lobby after the match. The host can renew an expired invite from that lobby.

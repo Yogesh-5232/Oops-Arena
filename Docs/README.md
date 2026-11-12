@@ -8,6 +8,7 @@ Start with the implementation phases. Phases 0–4 are implemented; Phase 5 is d
 | [Technical scope](Technical-Scope.md) | System responsibilities, networking, physics, security and infrastructure |
 | [Game design and scope](Game-Design.md) | Product requirements, session budgets, mini-games and release boundaries |
 | [Validation and release](Validation-and-Release.md) | Functional, network, browser and operational acceptance gates |
+| [Teamwork Madness plan](Teamwork-Madness-Plan.md) | Fourth arena: rules, implementation and open tuning |
 | [Development guide](Development-Guide.md) | Local setup, commands, configuration and troubleshooting |
 | [Status and decisions](Status-and-Decisions.md) | Implemented capabilities, evidence gaps and unresolved choices |
 | [Project plan](Project-Plan.md) | Preserved revised project overview from the initial review |

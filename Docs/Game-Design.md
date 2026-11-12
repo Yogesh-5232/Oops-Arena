@@ -22,7 +22,7 @@ All active windows include countdown, loading after kickoff, gameplay, transitio
 | Ultimate Obstacle Dash | Route and jump timing | Two or three checkpoints, controlled moving hazards, validated finish order and progress-ranked DNFs |
 | Floor Is Lava | Climb and choose safe routes | Four-gate stepped tower; stairs or timed lifts; lava rises in warned steps; early touches respawn on the highest safe pad; the closing stretch (last 16%) sends caught players to a balcony; ranks survivors, then later eliminations, gate, fewer falls |
 | Dodge Everything | Read telegraphs and safe gaps | Two initial hazard families, authored seeded combinations, short recovery |
-| Teamwork Madness | Coordinate cargo movement or handoffs | Mirrored lanes, capped contributions, server ownership and recoverable mistakes |
+| Teamwork Madness | Coordinate cargo movement or handoffs | Mirrored lanes; each team pushes a server-owned crate through three gates opened by plates a teammate holds; pushers capped at the smaller team size; unpushed crates roll back to the last cleared gate; teammates share one placement |
 
 For two-team modes, keep team size difference at most one. Cap active cargo contributors to the smaller team size and rotate the extra side across rematches. Test 5- and 11-player sessions explicitly. Use a relay handoff variant if cargo fails clarity, fairness or responsiveness tests.
 

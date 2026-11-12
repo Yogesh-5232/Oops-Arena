@@ -1,5 +1,8 @@
 import * as pc from 'playcanvas';
-import { LAVA_TIERS, dodgeHazards, lavaLevel, lavaWarning, moverCenter, moverWarns, type ArenaManifest, type Mover } from '@chaos/shared';
+import {
+  LAVA_TIERS, TEAM_GATES, TEAM_RULES, dodgeHazards, gateBit, laneX, lavaLevel, lavaWarning, moverCenter, moverWarns,
+  type ArenaManifest, type Mover,
+} from '@chaos/shared';
 import type { StageView } from './arena-stage.js';
 
 /** Materials alive right now, for leak checks in diagnostics builds. */
@@ -31,7 +34,9 @@ const BOX_COLORS = {
   platform: new pc.Color(0.85, 0.6, 0.35),
   wall: new pc.Color(0.55, 0.55, 0.65),
 } as const;
-const MARKER_COLORS = { gate: new pc.Color(1, 0.75, 0.15), checkpoint: new pc.Color(0.35, 0.75, 0.95) } as const;
+const MARKER_COLORS = {
+  gate: new pc.Color(1, 0.75, 0.15), checkpoint: new pc.Color(0.35, 0.75, 0.95), plate: new pc.Color(0.3, 0.9, 0.4),
+} as const;
 const MOVER_COLORS = { ferry: new pc.Color(0.85, 0.6, 0.35), pusher: new pc.Color(0.75, 0.25, 0.25) } as const;
 const WARNING_COLOR = new pc.Color(1, 0.85, 0.2);
 const WARNING_GLOW = new pc.Color(0.4, 0.3, 0);
@@ -46,9 +51,18 @@ const LAVA_RISING_GLOW = new pc.Color(0.9, 0.35, 0);
 /** The lava pool covers the base floor; it is drawn from just under the floor up to the lava surface. */
 const LAVA_HALF = LAVA_TIERS[0]!.half;
 const LAVA_BOTTOM = -1;
+/** Team colors, by team index (Blue, Red), for crates and teammates. */
+export const TEAM_COLORS = [new pc.Color(0.25, 0.45, 0.95), new pc.Color(0.9, 0.25, 0.25)] as const;
+const GATE_CLOSED = new pc.Color(0.9, 0.2, 0.2);
+const GATE_CLOSED_GLOW = new pc.Color(0.35, 0, 0);
+const GATE_OPEN = new pc.Color(0.3, 0.9, 0.4);
+/** Gate bars span the lane; closed they stand as tall as a crate, open they sink to a floor line. */
+const GATE_WIDTH = 9;
 
 /** Seeded or timed hazards for the live round, by arena tick. */
 export type HazardClock = { seed: number; elapsedTicks: number; roundTicks: number };
+/** Team arenas: replicated crate z per lane and open-gate mask, shown in every phase (crates stay where they ended). */
+export type TeamObjective = { cargo: readonly [number, number]; gates: number };
 
 type Tinted = { entity: pc.Entity; material: pc.StandardMaterial };
 const scratch: [number, number, number] = [0, 0, 0];
@@ -72,6 +86,8 @@ export class ArenaView implements StageView {
   private readonly movers: Array<Tinted & { mover: Mover }> = [];
   private readonly hazards: Tinted[] = [];
   private lava?: Tinted;
+  private crates: pc.Entity[] = [];
+  private gates: Array<Tinted & { team: number; gate: number }> = [];
 
   constructor(parent: pc.Entity, readonly manifest: ArenaManifest) {
     this.id = manifest.id;
@@ -110,6 +126,19 @@ export class ArenaView implements StageView {
       material.update();
       this.lava = { material, entity: solid('lava-pool', material, new pc.Vec3(1, 1, 1), this.root) };
     }
+    if (manifest.hazards === 'team') {
+      const [hx, hy, hz] = TEAM_RULES.cargoHalf;
+      for (const team of [0, 1]) {
+        const crate = solid(`team-crate-${team}`, this.own(createMaterial(TEAM_COLORS[team]!)), new pc.Vec3(hx * 2, hy * 2, hz * 2), this.root);
+        crate.setPosition(laneX(team), hy, TEAM_RULES.cargoStartZ);
+        this.crates.push(crate);
+        for (let gate = 0; gate < TEAM_GATES; gate++) {
+          const material = this.own(createMaterial(GATE_CLOSED));
+          const entity = solid(`team-gate-${team}-${gate}`, material, new pc.Vec3(1, 1, 1), this.root);
+          this.gates.push({ entity, material, team, gate });
+        }
+      }
+    }
   }
 
   setVisible(visible: boolean): void { this.root.enabled = visible; }
@@ -119,7 +148,7 @@ export class ArenaView implements StageView {
    * live, its hazards at the elapsed arena tick: Dodge's seeded hazards or the
    * Lava surface. Outside a live round, lava rests at its starting level.
    */
-  pose(tick: number, live?: HazardClock): void {
+  pose(tick: number, live?: HazardClock, objective?: TeamObjective): void {
     for (const { mover, entity, material } of this.movers) {
       entity.setPosition(...moverCenter(mover, tick, scratch));
       const warning = moverWarns(mover, Math.floor(tick));
@@ -133,6 +162,18 @@ export class ArenaView implements StageView {
       this.lava.entity.setPosition(0, (top + LAVA_BOTTOM) / 2, 0);
       const rising = Boolean(live) && lavaWarning(Math.floor(elapsed), roundTicks);
       tint(this.lava.material, rising ? LAVA_RISING : LAVA_COLOR, rising ? LAVA_RISING_GLOW : LAVA_GLOW);
+    }
+    if (this.crates.length > 0) {
+      const cargo = objective?.cargo ?? [TEAM_RULES.cargoStartZ, TEAM_RULES.cargoStartZ];
+      const mask = live ? objective?.gates ?? 0 : 0;
+      this.crates.forEach((crate, team) => crate.setPosition(laneX(team), TEAM_RULES.cargoHalf[1], cargo[team]!));
+      for (const { entity, material, team, gate } of this.gates) {
+        const open = (mask & gateBit(team, gate)) !== 0;
+        const height = open ? 0.06 : TEAM_RULES.cargoHalf[1] * 2;
+        entity.setLocalScale(GATE_WIDTH, height, 0.3);
+        entity.setPosition(laneX(team), height / 2, TEAM_RULES.gates[gate]!);
+        tint(material, open ? GATE_OPEN : GATE_CLOSED, open ? pc.Color.BLACK : GATE_CLOSED_GLOW);
+      }
     }
     if (this.hazards.length === 0) return;
     const active = live ? dodgeHazards(live.seed, live.elapsedTicks) : [];
@@ -153,7 +194,7 @@ export class ArenaView implements StageView {
   destroy(): void {
     this.root.destroy();
     for (const material of this.materials) destroyMaterial(material);
-    this.materials.length = this.movers.length = this.hazards.length = 0;
+    this.materials.length = this.movers.length = this.hazards.length = this.crates.length = this.gates.length = 0;
     this.lava = undefined;
   }
 
