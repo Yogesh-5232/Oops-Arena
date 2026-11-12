@@ -18,6 +18,7 @@
                     "lag": "node scripts/lag-proxy.mjs",
                     "lagtest": "tsx scripts/lagtest.mjs",
                     "smoke:private": "tsx scripts/private-smoke.mjs",
+                    "smoke:team": "tsx scripts/team-smoke.mjs",
                     "check":  "npm run typecheck \u0026\u0026 npm test \u0026\u0026 npm run build"
                 },
     "devDependencies":  {

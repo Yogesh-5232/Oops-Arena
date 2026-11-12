@@ -5,6 +5,7 @@ import { DODGE_BOXES, DODGE_MOVERS, DODGE_RULES, dodgeHazards, dodgeSpawn } from
 import { LAVA_BOXES, LAVA_MOVERS, LAVA_PADS, LAVA_RULES, LAVA_TIERS, lavaBalconySpot, lavaLevel, lavaSpawn } from './lava.js';
 import { MODE, MOVEMENT, NO_JUMP } from './movement.js';
 import { MOVERS, type Mover } from './movers.js';
+import { TEAM_BOXES, TEAM_GATES, TEAM_MOVERS, TEAM_RULES, laneX, plateCenter, teamSpawn } from './team.js';
 import { INPUT_BUFFER, MAX_TICK_REWIND, TICK_MS } from './timing.js';
 
 /**
@@ -12,14 +13,14 @@ import { INPUT_BUFFER, MAX_TICK_REWIND, TICK_MS } from './timing.js';
  * cannot follow. Arena content and the rule data in BUILD_RULES are hashed into
  * the build id automatically; logic changes inside functions are not.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
-export type ArenaId = 'plaza' | 'dash' | 'dodge' | 'lava';
+export type ArenaId = 'plaza' | 'dash' | 'dodge' | 'lava' | 'team';
 type Vec3 = readonly [number, number, number];
 type Spawn = { x: number; y: number; z: number };
 
 /** A flat, non-solid floor decal (gate line or checkpoint pad). */
-export type ArenaMarker = { readonly id: string; readonly kind: 'gate' | 'checkpoint'; readonly min: Vec3; readonly max: Vec3 };
+export type ArenaMarker = { readonly id: string; readonly kind: 'gate' | 'checkpoint' | 'plate'; readonly min: Vec3; readonly max: Vec3 };
 
 /**
  * Everything the server simulates and the client draws for one arena. The
@@ -35,9 +36,9 @@ export type ArenaManifest = {
   readonly movers: readonly Mover[];
   readonly markers: readonly ArenaMarker[];
   /** Seeded per-match hazards drawn and resolved from the match seed. */
-  readonly hazards: 'none' | 'dodge' | 'lava';
-  /** Spawn for a slot; undefined means the player's own plaza spawn. */
-  readonly spawn?: (slot: number) => Spawn;
+  readonly hazards: 'none' | 'dodge' | 'lava' | 'team';
+  /** Spawn for a slot (and team, in team arenas); undefined means the player's own plaza spawn. */
+  readonly spawn?: (slot: number, team?: number) => Spawn;
 };
 
 const checkpointMarkers: ArenaMarker[] = GREYBOX_ARENA.checkpoints.map(pad => ({
@@ -51,6 +52,16 @@ const gateMarkers: ArenaMarker[] = DASH_GATES.map((gate, index) => ({
 const lavaMarkers: ArenaMarker[] = LAVA_PADS.map(([x, y, z], index) => ({
   id: `lava-pad-${index + 1}`, kind: 'checkpoint', min: [x - 1.5, y - 1, z - 1], max: [x + 1.5, y - 0.94, z + 1],
 }));
+
+/** Pressure plates past each gate, and each lane's goal line. */
+const teamMarkers: ArenaMarker[] = [0, 1].flatMap(team => [
+  ...Array.from({ length: TEAM_GATES }, (_, gate): ArenaMarker => {
+    const [x, z] = plateCenter(team, gate);
+    const h = TEAM_RULES.plateHalf;
+    return { id: `team-plate-${team}-${gate}`, kind: 'plate', min: [x - h, 0.005, z - h], max: [x + h, 0.055, z + h] };
+  }),
+  { id: `team-goal-${team}`, kind: 'gate', min: [laneX(team) - 4.5, 0.005, TEAM_RULES.goalZ - TEAM_RULES.cargoHalf[2] - 0.4], max: [laneX(team) + 4.5, 0.055, TEAM_RULES.goalZ - TEAM_RULES.cargoHalf[2]] },
+]);
 
 export const ARENAS = {
   plaza: {
@@ -68,6 +79,10 @@ export const ARENAS = {
   lava: {
     id: 'lava', version: 1, name: 'Floor Is Lava',
     boxes: LAVA_BOXES, movers: LAVA_MOVERS, markers: lavaMarkers, hazards: 'lava', spawn: lavaSpawn,
+  },
+  team: {
+    id: 'team', version: 1, name: 'Teamwork Madness',
+    boxes: TEAM_BOXES, movers: TEAM_MOVERS, markers: teamMarkers, hazards: 'team', spawn: teamSpawn,
   },
 } as const satisfies { readonly [Id in ArenaId]: ArenaManifest & { readonly id: Id } };
 
@@ -101,6 +116,10 @@ export const BUILD_RULES = {
     LAVA_RULES, LAVA_TIERS, LAVA_PADS,
     balcony: Array.from({ length: GREYBOX_ARENA.spawns.length }, (_, slot) => lavaBalconySpot(slot)),
     level: Array.from({ length: 161 }, (_, second) => lavaLevel(second * 30, 4800)),
+  },
+  team: {
+    TEAM_RULES,
+    redSpawns: Array.from({ length: GREYBOX_ARENA.spawns.length }, (_, slot) => teamSpawn(slot, 1)),
   },
 };
 

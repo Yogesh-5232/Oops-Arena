@@ -6,7 +6,10 @@ export type DodgeStanding = { name: string; hits: number; active: boolean };
 /** Lava round result. `gate` counts tiers climbed; `outMs` is when the lava caught the player in the closing stretch. */
 export type LavaStanding = { name: string; gate: number; falls: number; outMs: number | null; active: boolean };
 
-export type RoundStanding = DashStanding | DodgeStanding | LavaStanding;
+/** Teamwork round result: every member shares the team's outcome. `progress` is the crate's course fraction. */
+export type TeamStanding = { name: string; team: number; deliveredMs: number | null; progress: number; active: boolean };
+
+export type RoundStanding = DashStanding | DodgeStanding | LavaStanding | TeamStanding;
 
 const singleRound = { countdownMs: 5_000, roundMs: 105_000, transitionMs: 0, resultsMs: 10_000 };
 
@@ -19,6 +22,7 @@ export const PLAYLISTS = {
   dash: { name: 'Dash Only', rounds: ['dash'], ...singleRound },
   lava: { name: 'Lava Only', rounds: ['lava'], ...singleRound },
   dodge: { name: 'Dodge Only', rounds: ['dodge'], ...singleRound },
+  team: { name: 'Teamwork Only', rounds: ['team'], ...singleRound },
   standard: {
     name: 'Standard Party', rounds: ['dash', 'lava', 'dodge'],
     countdownMs: 8_000, roundMs: 160_000, transitionMs: 15_000, resultsMs: 22_000,

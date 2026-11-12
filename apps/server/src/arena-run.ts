@@ -1,4 +1,4 @@
-import type { ArenaManifest, Player } from '@chaos/shared';
+import type { ArenaManifest, Box, Input, Player } from '@chaos/shared';
 
 export type ArenaSpawn = Pick<Player, 'x' | 'y' | 'z'>;
 export type ArenaPosition = Pick<Player, 'x' | 'y' | 'z'>;
@@ -13,7 +13,12 @@ export type ArenaSetup = {
   /** Length of the round in ticks, for arenas whose hazards scale with it. */
   roundTicks?: number;
   inactiveIds?: readonly string[];
+  /** Team per roster id, for team arenas. */
+  teams?: (id: string) => number;
 };
+
+/** Replicated objective state for team arenas: each crate's z and the open-gate mask. */
+export type TeamObjective = { cargo0: number; cargo1: number; gates: number };
 
 /**
  * Server-owned gameplay for one arena within a match. Phase timing stays with
@@ -23,17 +28,24 @@ export type ArenaSetup = {
 export interface ArenaRun<Result> {
   readonly manifest: ArenaManifest;
   setup(context: ArenaSetup): void;
-  spawn(slot: number): ArenaSpawn;
+  /** Spawn for a slot; team arenas also need the player's id to pick its lane. */
+  spawn(slot: number, id?: string): ArenaSpawn;
+  /** Collision boxes right now: the manifest's, plus any server-moved objects. */
+  boxes(): readonly Box[];
   /** Called once per server fixed tick while this arena run is active. */
   update(serverTick: number, now: number): void;
   /** Called after each authoritative movement step, including catch-up steps. Returns public room progress. */
-  playerStep(id: string, before: ArenaPosition, after: Player, elapsedMs: number, worldTick: number): number;
+  playerStep(
+    id: string, before: ArenaPosition, after: Player, elapsedMs: number, worldTick: number, input?: Pick<Input, 'x' | 'z'>,
+  ): number;
   readonly allFinished: boolean;
   rank(): Result;
   /** Release all run-owned state. Must be safe to call more than once. */
   dispose(): void;
   /** Arenas that rank disconnected players separately implement this. */
   setConnected?(id: string, connected: boolean): void;
+  /** Team arenas publish their crates and gates for the room state. */
+  objective?(): TeamObjective;
 }
 
 /** Every arena run between setup and dispose, with the room that owns it. */
@@ -63,9 +75,13 @@ export abstract class ArenaRunBase<Result> implements ArenaRun<Result> {
     live.set(this, context.owner);
   }
 
-  spawn(slot: number): ArenaSpawn {
+  spawn(slot: number, _id?: string): ArenaSpawn {
     this.assertActive();
     return this.manifest.spawn(slot);
+  }
+
+  boxes(): readonly Box[] {
+    return this.manifest.boxes;
   }
 
   update(serverTick: number, now: number): void {
@@ -73,9 +89,11 @@ export abstract class ArenaRunBase<Result> implements ArenaRun<Result> {
     this.onUpdate(serverTick, now);
   }
 
-  playerStep(id: string, before: ArenaPosition, after: Player, elapsedMs: number, worldTick: number): number {
+  playerStep(
+    id: string, before: ArenaPosition, after: Player, elapsedMs: number, worldTick: number, input?: Pick<Input, 'x' | 'z'>,
+  ): number {
     this.assertActive();
-    return this.onPlayerStep(id, before, after, elapsedMs, worldTick);
+    return this.onPlayerStep(id, before, after, elapsedMs, worldTick, input);
   }
 
   get allFinished(): boolean {
@@ -104,7 +122,7 @@ export abstract class ArenaRunBase<Result> implements ArenaRun<Result> {
   /** Per-tick world state beyond the shared simulation; most arenas have none. */
   protected onUpdate(_serverTick: number, _now: number): void {}
   protected abstract onPlayerStep(
-    id: string, before: ArenaPosition, after: Player, elapsedMs: number, worldTick: number,
+    id: string, before: ArenaPosition, after: Player, elapsedMs: number, worldTick: number, input?: Pick<Input, 'x' | 'z'>,
   ): number;
   protected abstract finished(): boolean;
   protected abstract ranking(): Result;

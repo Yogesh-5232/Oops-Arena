@@ -1,13 +1,13 @@
 import {
-  DASH_GATES, LAVA_GATES,
-  type DashStanding, type DodgeStanding, type LavaStanding, type PartyResults, type PartyStanding, type PresetId,
+  DASH_GATES, LAVA_GATES, TEAM_NAMES,
+  type DashStanding, type DodgeStanding, type LavaStanding, type TeamStanding, type PartyResults, type PartyStanding, type PresetId,
   type RoundArenaId, type RoundResult, type RoundStanding,
 } from '@chaos/shared';
 
 type Scoring<Row> = { tie(row: Row): string; summary(row: Row): string };
 
 /** Per-arena tie keys (equal keys share placement points) and one-line result summaries. */
-const SCORING: { [Id in RoundArenaId]: Scoring<{ dash: DashStanding; dodge: DodgeStanding; lava: LavaStanding }[Id]> } = {
+const SCORING: { [Id in RoundArenaId]: Scoring<{ dash: DashStanding; dodge: DodgeStanding; lava: LavaStanding; team: TeamStanding }[Id]> } = {
   dash: {
     tie: row => row.finishMs === null ? `dnf:${row.checkpoints}:${row.progress.toFixed(6)}` : `finish:${row.finishMs}`,
     summary: row => row.finishMs === null
@@ -23,6 +23,16 @@ const SCORING: { [Id in RoundArenaId]: Scoring<{ dash: DashStanding; dodge: Dodg
     summary: row => !row.active ? 'Lava DNF'
       : row.outMs !== null ? `Lava out at ${Math.floor(row.outMs / 1000)}s`
       : row.gate === LAVA_GATES ? 'Lava summit' : `Lava gate ${row.gate}/${LAVA_GATES}`,
+  },
+  // Team members share their team's outcome, so a whole team shares one placement (the average rank's points).
+  team: {
+    tie: row => row.active ? `${row.deliveredMs ?? 'open'}:${row.progress.toFixed(3)}` : 'inactive',
+    summary: row => {
+      const team = TEAM_NAMES[row.team] ?? 'Team';
+      return !row.active ? 'Teamwork DNF'
+        : row.deliveredMs !== null ? `Teamwork ${team} delivered ${(row.deliveredMs / 1000).toFixed(1)}s`
+        : `Teamwork ${team} ${Math.round(row.progress * 100)}%`;
+    },
   },
 };
 

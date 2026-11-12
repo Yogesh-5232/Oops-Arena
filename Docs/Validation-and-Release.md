@@ -19,6 +19,8 @@ Run the [LAN setup](Development-Guide.md) with diagnostics enabled. Use four bro
 
 ## Phase 2 network measurements
 
+The project owner reported the four-player physical-device playtest (controller, ferry, pusher, respawns) complete on 2026-11-12, closing Phase 2.
+
 Recorded on 2026-11-11 with `npm run lagtest` (about 10 seconds of scripted walking with diagonals and hops per profile, one mover and one watcher, local relay). Stalls hold a chunk and everything behind it for 250 ms, modeling a TCP retransmit. Corrections count acknowledgements where the predicted position moved by more than 0.001 units. "Watcher frozen" counts 60 Hz frames where the smoothed remote avatar did not move while the mover was walking.
 
 | Profile | Input-to-ack | Corrections | Worst correction | Watcher frozen | Raw updates frozen |
@@ -58,6 +60,8 @@ Correction counts reported before this measurement (local smoke and browser chec
 
 ## Short Party browser acceptance
 
+The project owner reported this acceptance complete on 2026-11-12.
+
 Use the LAN setup and at least four browser clients on separate devices. Record the commit, device/browser combinations and elapsed match time.
 
 1. Create a private room, share the code, join as guests, and ready up. Confirm a guest cannot start and a host cannot start before four guests are ready.
@@ -83,7 +87,7 @@ The pre-Phase 4 Quick Dash lifecycle remains the implementation baseline for the
 
 **Phase 4 lifecycle evidence (2026-11-12, branch `phase-4-lifecycle`):** `npm run check` passed (46 unit tests, including manifest and rule build-id coverage, arena-run disposal, per-room run counts, a 2,000-cycle arena soak, a heap-growth check that `npm test` runs under `--expose-gc`, and the client arena stage). `npm run smoke`, `npm run lagtest` and `npm run smoke:private` passed. The private smoke also verified stale and missing build rejection, at most one live server arena run in the room during a match, zero after a completed or interrupted match, and the announced next arenas. In one desktop browser tab with three SDK bots on a 10%-speed server, `oopsArena.stats()` read 36 entities and 14 materials in the lobby before and after each of two full matches. A reload during Dodge rejoined Dodge with Plaza prefetched while the round continued. There were no console errors.
 
-This is SDK-level historical evidence, not browser acceptance. The Short Party browser scenarios above remain open, especially seeded hazard agreement, mixed Dash finish/DNF, slow loading, reconnect during Dodge, and visual agreement across clients. Do not mark Phase 4 complete until those results are recorded.
+This is SDK-level historical evidence. The project owner reported the Short Party browser acceptance above complete on 2026-11-12 on separate devices at full speed, closing Phases 3 and 4.
 
 ## Phase 5 private party browser playtest
 
