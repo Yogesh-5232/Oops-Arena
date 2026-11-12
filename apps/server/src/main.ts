@@ -3,12 +3,15 @@ import { Server, Room, ServerError, matchMaker, type Client } from '@colyseus/co
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { schema, t } from '@colyseus/schema';
 import {
-  CAPACITY, DASH_BOXES, INPUT_BUFFER, availableSpawn, clampInputTick, dashSpawn, resetToSpawn, simulateInput, spawnPlayer,
-  type DashStanding, type Input, type Player,
+  CAPACITY, INPUT_BUFFER, TICK_MS, availableSpawn, clampInputTick, resetToSpawn, simulateInput, spawnPlayer,
+  type DashStanding, type DodgeStanding, type Input, type Player,
 } from '@chaos/shared';
-import { DashRace } from './dash-race.js';
+import { DashArenaRun } from './dash-arena.js';
+import { DodgeArenaRun } from './dodge-arena.js';
+import type { ArenaRun } from './arena-run.js';
 import { PrivateLobby } from './private-lobby.js';
-import { QuickMatch } from './quick-match.js';
+import { ShortPartyClock } from './short-party-clock.js';
+import { ShortScoreboard } from './short-scoreboard.js';
 
 /**
  * Every field the shared step reads or writes (see Player in @chaos/shared), so
@@ -24,13 +27,19 @@ const Avatar = schema({
   faceX: t.float64(), faceZ: t.float64(),
   slot: t.uint8(),
 });
-const Guest = schema({ name: t.string(), connected: t.boolean(), ready: t.boolean(), racing: t.boolean(), checkpoints: t.number() });
+const Guest = schema({ name: t.string(), connected: t.boolean(), ready: t.boolean(), racing: t.boolean(), progress: t.number() });
 const State = schema({
   tick: t.uint32(), players: t.map(Avatar), guests: t.map(Guest), phase: t.string(), hostId: t.string(),
   capacity: t.number(), code: t.string(), codeExpiresAt: t.float64(), remainingMs: t.number(), standings: t.string(),
+  arenaId: t.string(), roundIndex: t.uint8(), arenaSeed: t.uint32(), arenaStartTick: t.uint32(),
 });
 /** One numbered input per client tick. float64 keeps client and server values bit-identical. */
 const MoveInput = schema({ x: t.float64(), z: t.float64(), jump: t.boolean(), tick: t.uint32() });
+
+function teleportPlayer(player: Player, spawn?: Pick<Player, 'x' | 'y' | 'z'>): void {
+  resetToSpawn(player, spawn);
+  player.respawns = (player.respawns + 1) % 256;
+}
 
 class Playground extends Room {
   state = new State();
@@ -89,8 +98,8 @@ class Playground extends Room {
     this.setPatchRate(50);
     this.setFixedTimestep(ctx => {
       const started = performance.now();
-      this.beforeTick(started);
       const serverTick = ctx.tick;
+      this.beforeTick(started, serverTick);
       this.state.tick = serverTick;
       inputBacklog = 0;
       for (const [id, player] of this.state.players) {
@@ -124,12 +133,12 @@ class Playground extends Room {
           catchUps++;
         }
       }
-      this.afterTick(started);
+      this.afterTick(started, serverTick);
       tickMs = performance.now() - started;
     }, 30);
   }
-  protected beforeTick(_now: number) {}
-  protected afterTick(_now: number) {}
+  protected beforeTick(_now: number, _serverTick: number) {}
+  protected afterTick(_now: number, _serverTick: number) {}
   protected canMove(_id: string): boolean { return true; }
   protected move(_id: string, player: Player, input: Input, dt: number, _now: number, serverTick: number) {
     simulateInput(player, input, dt, undefined, undefined, clampInputTick(input.tick, player.simTick, serverTick));
@@ -174,7 +183,20 @@ class PrivateDash extends Playground {
   private lobby!: PrivateLobby;
   private sequence = 0;
   private codeDeadline = 0;
-  private active?: { roster: readonly string[]; clock: QuickMatch<DashStanding[]>; race: DashRace; interrupted: boolean };
+  private active?: {
+    roster: readonly string[];
+    names: Map<string, string>;
+    clock: ShortPartyClock;
+    scoreboard: ShortScoreboard;
+    seed: number;
+    dodgeStartTick: number;
+    arena?: ArenaRun<DashStanding[] | DodgeStanding[]>;
+    dash?: DashArenaRun;
+    dodge?: DodgeArenaRun;
+    dashLocked: boolean;
+    dodgeLocked: boolean;
+    interrupted: boolean;
+  };
 
   override async onCreate(options: { capacity?: number } = {}) {
     try { this.lobby = new PrivateLobby(options.capacity ?? CAPACITY); }
@@ -195,19 +217,39 @@ class PrivateDash extends Playground {
     this.onMessage('start', client => {
       const roster = this.lobby.lockRoster(client.sessionId);
       if (!roster) return;
-      const clock = new QuickMatch<DashStanding[]>(performance.now());
-      const race = new DashRace(roster, id => this.state.guests.get(id)!.name);
-      this.active = { roster, clock, race, interrupted: false };
+      const startedAt = performance.now();
+      const clock = new ShortPartyClock(startedAt);
+      const startedTick = this.state.tick;
+      const seed = randomInt(1, 0x7fffffff);
+      const names = new Map<string, string>();
+      roster.forEach(id => names.set(id, this.state.guests.get(id)!.name));
+      const dash = new DashArenaRun();
+      try {
+        dash.setup({ roster, name: id => names.get(id) ?? id });
+      } catch (error) {
+        dash.dispose();
+        this.lobby.finishMatch(roster);
+        throw error;
+      }
+      const dodgeStartTick = startedTick + Math.round((clock.dodgeStartsAt - startedAt) / TICK_MS);
+      this.active = {
+        roster, names, clock, scoreboard: new ShortScoreboard([...names.values()]), seed, dodgeStartTick,
+        arena: dash, dash, dashLocked: false, dodgeLocked: false, interrupted: false,
+      };
       void this.lock();
       this.state.phase = 'countdown';
-      this.state.standings = '';
-      this.state.remainingMs = 5000;
+      this.state.arenaId = 'dash';
+      this.state.roundIndex = 0;
+      this.state.arenaSeed = seed;
+      this.state.arenaStartTick = startedTick + Math.round((clock.dashStartsAt - startedAt) / TICK_MS);
+      this.state.standings = JSON.stringify(this.active.scoreboard.snapshot(false));
+      this.state.remainingMs = 8000;
       roster.forEach(id => {
         const guest = this.state.guests.get(id)!;
         guest.racing = true;
-        guest.checkpoints = 0;
+        guest.progress = 0;
         const player = this.state.players.get(id)!;
-        resetToSpawn(player, dashSpawn(player.slot));
+        teleportPlayer(player, dash.spawn(player.slot));
       });
     });
   }
@@ -225,7 +267,7 @@ class PrivateDash extends Playground {
     guest.name = `Guest ${++this.sequence}`;
     guest.connected = true;
     guest.ready = guest.racing = false;
-    guest.checkpoints = 0;
+    guest.progress = 0;
     this.state.guests.set(client.sessionId, guest);
     this.state.hostId = this.lobby.hostId ?? '';
   }
@@ -234,6 +276,7 @@ class PrivateDash extends Playground {
     this.lobby.setConnected(client.sessionId, false);
     const guest = this.state.guests.get(client.sessionId);
     if (guest) guest.connected = guest.ready = false;
+    this.active?.dodge?.setConnected(client.sessionId, false);
     await super.onDrop(client);
   }
 
@@ -241,60 +284,118 @@ class PrivateDash extends Playground {
     this.lobby.setConnected(client.sessionId, true);
     const guest = this.state.guests.get(client.sessionId);
     if (guest) guest.connected = true;
+    this.active?.dodge?.setConnected(client.sessionId, true);
   }
 
   protected override remove(client: Client) {
+    this.active?.dodge?.setConnected(client.sessionId, false);
     this.lobby.release(client.sessionId);
     this.state.guests.delete(client.sessionId);
     this.state.hostId = this.lobby.hostId ?? '';
     super.remove(client);
   }
 
-  onDispose() { CODES.delete(this.roomId); }
+  onDispose() {
+    this.active?.arena.dispose();
+    this.active = undefined;
+    CODES.delete(this.roomId);
+  }
 
-  protected override beforeTick(now: number) { this.updateMatch(now); }
-  protected override afterTick(now: number) { this.updateMatch(now); }
+  protected override beforeTick(now: number, serverTick: number) {
+    this.updateMatch(now, serverTick);
+    this.active?.arena?.update(serverTick, now);
+  }
+  protected override afterTick(now: number, serverTick: number) { this.updateMatch(now, serverTick); }
 
   protected override canMove(id: string) {
     const guest = this.state.guests.get(id);
     return Boolean(guest?.connected && (!this.active ||
-      (guest.racing && (this.state.phase === 'round' || this.state.phase === 'cooldown'))));
+      (this.active.arena && guest.racing && (this.state.phase === 'round' || this.state.phase === 'cooldown'))));
   }
 
   protected override move(id: string, player: Player, input: Input, dt: number, now: number, serverTick: number) {
-    const before = { x: player.x, z: player.z };
+    const before = { x: player.x, y: player.y, z: player.z };
     const active = this.active;
+    const arena = active?.arena;
+    const inputTick = clampInputTick(input.tick, player.simTick, serverTick);
     simulateInput(
-      player, input, dt, active ? DASH_BOXES : undefined, active ? dashSpawn(player.slot) : undefined,
-      clampInputTick(input.tick, player.simTick, serverTick),
+      player, input, dt, arena?.collisionBoxes, arena ? arena.spawn(player.slot) : undefined,
+      inputTick, arena?.movers,
     );
-    if (!active) return;
-    if (active.clock.acceptsScoring(now)) {
-      this.state.guests.get(id)!.checkpoints = active.race.record(id, before, player, now - active.clock.roundStartsAt);
+    if (!active || !arena) return;
+    const scoringDash = this.state.arenaId === 'dash' && !active.dashLocked;
+    const scoringDodge = this.state.arenaId === 'dodge' && !active.dodgeLocked;
+    if ((scoringDash || scoringDodge) && active.clock.acceptsScoring(this.state.arenaId as 'dash' | 'dodge', now)) {
+      const roundStart = this.state.arenaId === 'dash' ? active.clock.dashStartsAt : active.clock.dodgeStartsAt;
+      this.state.guests.get(id)!.progress = arena.playerStep(
+        id, before, player, now - roundStart, inputTick,
+      );
     }
   }
 
-  private updateMatch(now: number) {
+  private updateMatch(now: number, serverTick: number) {
     const active = this.active;
     if (!active) return;
-    const { clock, race, roster } = active;
-    if (!this.state.standings && !race.allFinished && roster.filter(id => this.state.guests.has(id)).length < 2) {
+    const { clock, roster } = active;
+    if (!active.dodgeLocked && roster.filter(id => this.state.guests.has(id)).length < 2) {
       active.interrupted = true;
     }
-    const snapshot = clock.advance(now, () => race.standings(), race.allFinished || active.interrupted);
-    const remaining = Math.max(0, Math.ceil((clock.endsAt - now) / 100) * 100);
-    if ('result' in snapshot && !this.state.standings) {
-      this.state.standings = JSON.stringify({ interrupted: active.interrupted, rows: snapshot.result });
+
+    if (!active.dashLocked && active.dash && (active.dash.allFinished || now >= clock.dashEndsAt)) {
+      active.scoreboard.recordDash(active.dash.rank());
+      active.dashLocked = true;
+      this.state.standings = JSON.stringify(active.scoreboard.snapshot(active.interrupted));
     }
-    if (snapshot.phase !== 'complete') {
-      this.state.phase = snapshot.phase;
-      this.state.remainingMs = snapshot.phase === 'countdown' ? Math.max(0, remaining - 115_000) : remaining;
-      return;
+
+    if (now >= clock.dashEndsAt && active.dash) {
+      active.dash.dispose();
+      active.dash = undefined;
+      active.arena = undefined;
+      for (const avatar of this.state.players.values()) teleportPlayer(avatar);
     }
+
+    if (now >= clock.dodgeStartsAt && !active.dodge) {
+      const dodge = new DodgeArenaRun();
+      dodge.setup({
+        roster,
+        name: id => active.names.get(id) ?? id,
+        seed: active.seed,
+        startTick: active.dodgeStartTick,
+        inactiveIds: roster.filter(id => !this.state.guests.get(id)?.connected),
+      });
+      active.dodge = dodge;
+      active.arena = dodge;
+      this.state.arenaStartTick = active.dodgeStartTick;
+      for (const id of roster) {
+        const guest = this.state.guests.get(id);
+        const player = this.state.players.get(id);
+        if (guest) guest.progress = 0;
+        if (player) teleportPlayer(player, dodge.spawn(player.slot));
+      }
+    }
+
+    if (!active.dodgeLocked && active.dodge && now >= clock.dodgeEndsAt) {
+      active.scoreboard.recordDodge(active.dodge.rank());
+      active.dodgeLocked = true;
+      this.state.standings = JSON.stringify(active.scoreboard.snapshot(active.interrupted));
+      active.dodge.dispose();
+      active.dodge = undefined;
+      active.arena = undefined;
+    }
+
+    const snapshot = clock.snapshot(now, active.dashLocked);
+    this.state.phase = snapshot.phase;
+    this.state.arenaId = snapshot.arenaId;
+    this.state.roundIndex = snapshot.roundIndex;
+    this.state.remainingMs = snapshot.remainingMs;
+    if (snapshot.phase !== 'complete') return;
+
+    this.state.standings = JSON.stringify(active.scoreboard.snapshot(active.interrupted));
     this.lobby.finishMatch(roster);
     this.active = undefined;
     for (const guest of this.state.guests.values()) guest.ready = guest.racing = false;
-    for (const avatar of this.state.players.values()) resetToSpawn(avatar);
+    for (const avatar of this.state.players.values()) teleportPlayer(avatar);
+    this.state.arenaId = '';
     this.state.phase = 'lobby';
     this.state.remainingMs = 0;
     void this.unlock();

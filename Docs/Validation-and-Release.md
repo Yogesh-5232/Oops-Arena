@@ -52,15 +52,30 @@ After the bot fix, four 40 ms course runs completed every part with 0 correction
 
 Correction counts reported before this measurement (local smoke and browser checks during the Phase 2 feel work) were not measured: the SDK records correction sizes only when `warnOnDivergence` is set. With it enabled the local smoke run measures 0 of 90.
 
-## Phase 3 private Dash browser playtest
+## Short Party browser acceptance
 
 Use the LAN setup and at least four browser clients on separate devices. Record the commit, device/browser combinations and elapsed match time.
 
 1. Create a private room, share the code, join as guests, and ready up. Confirm a guest cannot start and a host cannot start before four guests are ready.
 2. Start with four ready guests and, if available, a fifth unready guest. Verify countdown and admission lock. The fifth guest stays in the room and waits for the next race.
-3. Have some racers finish and others run out of time. Verify the gates only count in order, all browsers show the same standings, and the room returns to the plaza at the two-minute deadline.
-4. Repeat with a late-loading browser, a reload during a race, and the host leaving. Check recovery, host transfer, and the fixed deadline.
-5. Rematch in the same room. Verify a race with too few remaining players displays an interrupted result.
+3. Have some Dash racers finish and others time out. Verify gates count in order, every browser receives the same Dash standings, and the party enters Dodge at the scheduled transition.
+4. In Dodge, confirm both hazard families show their warnings before impact and produce the same server result for all clients. Record the match seed so a repeated seed can reproduce the pattern.
+5. Repeat with a slow-loading browser, a reload during either arena, and the host leaving. Verify reconnect restores the current arena, phase, remaining time, seed, and current standings without shifting the 315-second deadline.
+6. Verify final standings combine both rounds, tied placements share points, the room returns to the plaza at 315 seconds, and the same group can rematch. Confirm an interrupted match is labeled clearly.
+
+### Dash lifecycle baseline
+
+The pre-Phase 4 Quick Dash lifecycle remains the implementation baseline for the first Short Party round:
+
+1. In the lobby, the first guest is host. The host can lock a roster of at least four connected, ready guests. The roster is fixed for the match; other guests wait for the next race and new admission is closed.
+2. The server resets the roster and starts a 5-second countdown. The shared movement simulation runs with Dash course collision during the round.
+3. The server accepts checkpoint and finish scoring only in order and only from the locked roster. The race allows 105 seconds of scoring. An early all-finish or interruption locks standings; otherwise standings are finalized at the scoring cutoff.
+4. The match has a fixed 120-second deadline from start. It shows the results phase for the final 10 seconds, then discards active race state, resets avatars and readiness, reopens the lobby, and unlocks admission. The standings remain visible in the lobby until the next race starts.
+5. A reconnecting seat retains its identity. Host ownership updates when the host leaves. A rematch uses the same room; if fewer than two roster seats remain before standings lock, results are marked interrupted.
+
+**Historical automated baseline evidence (2026-11-12):** Before the Short Party changes, on branch `codex/phase-4-baseline` based on `main` at `b76436a`, `npm run check` passed with Node 24.22.2: type checking, all 34 unit tests, and production client/server builds. The then-current `scripts/private-smoke.mjs` passed against a local server and verified invite validation/expiry, host-only start, a waiting unready guest, roster and admission lock, token reconnect, ordered Dash finishes, shared standings, host transfer, the 120-second deadline, rematch, and interrupted results. These results do not validate the new Short Party code. The client build reported a 2.4 MB minified JavaScript chunk, above Vite's 500 kB advisory threshold.
+
+This is SDK-level historical evidence, not browser acceptance. The Short Party browser scenarios above remain open, especially seeded hazard agreement, mixed Dash finish/DNF, slow loading, reconnect during Dodge, and visual agreement across clients. Do not mark Phase 4 complete until those results are recorded.
 
 ## Functional matrix
 

@@ -5,11 +5,15 @@ import { Client } from '@colyseus/sdk';
 import { DASH_GATES } from '@chaos/shared';
 
 const port = process.env.PRIVATE_SMOKE_PORT ?? '2600';
+const testScale = 0.1;
 const endpoint = `http://127.0.0.1:${port}`;
 const sdk = new Client(endpoint);
 const rooms = new Set();
 const server = spawn(process.execPath, ['apps/server/dist/main.js'], {
-  env: { ...process.env, PORT: port, PRIVATE_CODE_TTL_MS: '60000' }, stdio: ['ignore', 'ignore', 'inherit'],
+  env: {
+    ...process.env, NODE_ENV: 'test', SHORT_PARTY_TEST_SCALE: String(testScale),
+    PORT: port, PRIVATE_CODE_TTL_MS: '10000',
+  }, stdio: ['ignore', 'ignore', 'inherit'],
 });
 
 async function until(check, message, timeout = 5000) {
@@ -47,7 +51,7 @@ async function drive(room) {
       return false;
     }, `failed to line up with gate ${index + 1}`);
     await until(() => {
-      if (room.state.guests.get(room.sessionId).checkpoints > index && position().z < gate.z - 0.8) return true;
+      if (room.state.guests.get(room.sessionId).progress > index && position().z < gate.z - 0.8) return true;
       command(0, -1);
       return false;
     }, `failed to cross gate ${index + 1}`);
@@ -95,30 +99,34 @@ try {
   await until(() => racers.every(room => room.state.phase === 'round'), 'round did not synchronize', 7000);
   await Promise.all(racers.map(drive));
   await until(() => host.state.phase === 'cooldown', 'all finishers did not enter cooldown');
-  const final = host.state.standings;
-  const result = JSON.parse(final);
-  assert.equal(result.interrupted, false);
-  assert.equal(result.rows.length, 4);
-  assert.ok(result.rows.every(row => row.finishMs !== null && row.checkpoints === 3));
+  const dashResult = JSON.parse(host.state.standings);
+  assert.equal(dashResult.interrupted, false);
+  assert.equal(dashResult.rows.length, 4);
+  assert.ok(dashResult.rows.every(row => row.dash?.finishMs !== null && row.dash?.checkpoints === 3));
   await leave(host);
   const nextHost = racers[1];
   await until(() => nextHost.state.hostId === nextHost.sessionId, 'host did not transfer after leave');
-  await until(() => [...rooms].every(room => room.state.phase === 'results'), 'results window did not arrive', 115000);
-  assert.ok([...rooms].every(room => room.state.standings === final), 'clients received different standings');
-  await until(() => [...rooms].every(room => room.state.phase === 'lobby'), 'lobby did not reopen', 13000);
+  await until(() => [...rooms].every(room => room.state.phase === 'results'), 'Short Party results did not arrive', 40000);
+  const final = waiting.state.standings;
+  const combined = JSON.parse(final);
+  assert.ok(combined.rows.every(row => row.dash && row.dodge), 'both arena results must be present');
+  assert.ok([...rooms].every(room => room.state.standings === final), 'clients received different combined standings');
+  await until(() => [...rooms].every(room => room.state.phase === 'lobby'), 'lobby did not reopen', 3000);
   const elapsed = performance.now() - started;
-  assert.ok(elapsed >= 119500 && elapsed < 122000, `match took ${Math.round(elapsed)}ms`);
+  const expected = 315_000 * testScale;
+  assert.ok(elapsed >= expected - 1500 && elapsed < expected + 2000, `match took ${Math.round(elapsed)}ms`);
   assert.ok([...rooms].every(room => !room.state.guests.get(room.sessionId).ready));
   await assert.rejects(() => sdk.joinById(code), /room code expired/i);
-  console.log('PASS: private code and expiry, host-only start, waiting guest, locked roster, token reconnect, Dash finish, shared results, host transfer and fixed deadline');
+  console.log('PASS: private code and expiry, readiness, locked roster, token reconnect, Dash + Dodge, shared standings, host transfer and fixed Short deadline');
 
   for (const room of rooms) room.send('ready', true);
   await until(() => [...rooms].every(room => nextHost.state.guests.get(room.sessionId).ready), 'rematch ready flags missing');
   nextHost.send('start');
   await until(() => waiting.state.phase === 'countdown' && waiting.state.guests.get(waiting.sessionId).racing, 'rematch did not start');
   for (const room of [...rooms]) if (room !== waiting) await leave(room);
-  await until(() => waiting.state.phase === 'cooldown', 'interrupted rematch did not close scoring', 7000);
+  await until(() => waiting.state.phase === 'results', 'interrupted Short Party did not finalize', 40000);
   assert.equal(JSON.parse(waiting.state.standings).interrupted, true);
+  await until(() => waiting.state.phase === 'lobby', 'interrupted rematch did not reopen the lobby', 3000);
   console.log('PASS: same-room rematch and interrupted-session result');
 } finally {
   await Promise.allSettled([...rooms].map(room => room.leave()));
