@@ -47,3 +47,24 @@ test('four ready players can race while an unready guest waits and the same grou
   assert.ok(lobby.finishMatch(second));
   assert.ok(lobby.admit('late'));
 });
+
+test('the party starts and rematches as a whole, including a returning member', () => {
+  const lobby = new PrivateLobby(6, true);
+  const members = ['host', 'b', 'c', 'd', 'e'];
+  for (const id of members) assert.ok(lobby.admit(id));
+  for (const id of members.slice(0, 4)) assert.ok(lobby.setReady(id, true));
+  assert.equal(lobby.lockRoster('host'), undefined, 'the fifth member must be ready too');
+  assert.ok(lobby.setReady('e', true));
+  lobby.setConnected('e', false);
+  assert.equal(lobby.lockRoster('host'), undefined, 'the dropped member keeps their seat');
+  lobby.setConnected('e', true);
+  assert.equal(lobby.lockRoster('host'), undefined, 'reconnect clears readiness');
+  assert.ok(lobby.setReady('e', true));
+  const first = lobby.lockRoster('host')!;
+  assert.deepEqual(first, members);
+  assert.equal(lobby.admit('late'), false);
+  assert.ok(lobby.finishMatch(first));
+  assert.equal(lobby.readyCount, 0);
+  for (const id of members) assert.ok(lobby.setReady(id, true));
+  assert.deepEqual(lobby.lockRoster('host'), members);
+});

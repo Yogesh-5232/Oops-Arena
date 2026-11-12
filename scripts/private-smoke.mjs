@@ -83,6 +83,34 @@ try {
     try { return (await fetch(`${endpoint}/__healthcheck`)).ok; }
     catch { return false; }
   }, 'private test server did not listen');
+  const partyHost = await track(sdk.create('private-dash', { capacity: 5, party: true, build: ARENA_BUILD }));
+  assert.equal(partyHost.state.party, true);
+  const partyCode = partyHost.state.code;
+  const party = [partyHost];
+  for (let i = 0; i < 3; i++) party.push(await track(sdk.joinById(partyCode, { build: ARENA_BUILD })));
+  const attempts = await Promise.allSettled(Array.from({ length: 3 }, () => track(sdk.joinById(partyCode, { build: ARENA_BUILD }))));
+  const admitted = attempts.filter(attempt => attempt.status === 'fulfilled');
+  assert.equal(admitted.length, 1, 'concurrent joins must claim only the remaining seat');
+  await leave(admitted[0].value);
+  const lastMember = await track(sdk.joinById(partyCode, { build: ARENA_BUILD }));
+  party.push(lastMember);
+  await until(() => partyHost.state.guests.has(lastMember.sessionId), 'fifth member did not replicate');
+  for (const room of party.slice(0, 4)) room.send('ready', true);
+  await until(() => party.slice(0, 4).every(room => partyHost.state.guests.get(room.sessionId).ready),
+    'party readiness did not replicate');
+  partyHost.send('start');
+  await delay(200);
+  assert.equal(partyHost.state.phase, 'lobby', 'four ready members cannot leave a fifth behind');
+  lastMember.send('ready', true);
+  await until(() => partyHost.state.guests.get(lastMember.sessionId).ready, 'fifth member did not ready up');
+  partyHost.send('start');
+  await until(() => party.every(room => room.state.phase === 'countdown'), 'party did not enter countdown');
+  assert.ok(party.every(room => partyHost.state.guests.get(room.sessionId).racing));
+  await assert.rejects(() => sdk.joinById(partyCode, { build: ARENA_BUILD }), 'party code must close at countdown');
+  await Promise.all(party.map(room => leave(room)));
+  console.log('PASS: private party creation, concurrent capacity, seat reuse and whole-party kickoff');
+
+
   await assert.rejects(() => sdk.create('private-dash', { capacity: 3, build: ARENA_BUILD }));
   await assert.rejects(() => sdk.create('private-dash', { capacity: 6, build: 'p0-stale' }), /out of date/i);
   await assert.rejects(() => sdk.create('private-dash', { capacity: 6 }), /out of date/i, 'a client without a build id must be rejected');

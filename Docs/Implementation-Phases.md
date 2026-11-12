@@ -13,7 +13,7 @@ The phase order follows technical dependencies. Visual polish can progress withi
 | 2 | Responsive networked controller | Phase 1 | Controller, lag measurements, world movement and movers implemented. Real-network playtest next |
 | 3 | Complete private Dash match | Phase 2 | Private Dash flow implemented. Physical browser acceptance pending |
 | 4 | Arena lifecycle and Dodge | Phase 3 | Implemented — arena manifests, prefetch/disposal, build check and resync verified in SDK tests and a one-machine browser run. Multi-device and full-speed acceptance pending |
-| 5 | Public matchmaking and parties | Phase 4 | Deferred — future implementation, after Phase 6 |
+| 5 | Public matchmaking and parties | Phase 4 | Deferred — public matchmaking after Phase 6. Private group parties implemented; browser playtest pending |
 | 6 | Four-game MVP and all presets | Phase 4 | In progress — Floor Is Lava and Standard preset implemented; Teamwork Madness and Full next |
 | 7 | Presentation and accessibility | Phase 6 | Planned |
 | 8 | Release validation and operations | Phase 7 | Planned |
@@ -128,6 +128,8 @@ The phase order follows technical dependencies. Visual polish can progress withi
 **Exit criteria.** Concurrent join attempts never exceed capacity or split a party. Failed joins release capacity. Matches start only with the ready minimum, and in-progress rooms accept only valid reconnects.
 
 **Main risks.** Sparse population, races in reservation handling and fragmented queues. Add queue variants only when population evidence supports them.
+
+**Progress (private group parties).** The private-room slice is implemented. **Create group party** makes a private room (capacity 4–12) that starts only when every member is connected and ready and there are at least four. The host can renew an expired invite from the lobby. Admissions lock at countdown, dropped members keep their reconnect reservation and must ready up again, and the group stays in the same room for a rematch. Concurrent joins respect capacity and released seats can be reused. Browser checks of invite renewal, reconnect, host transfer and same-party rematch remain. Protocol version is 3 (party state field and invite renewal message). The public queue is still deferred.
 
 ## Phase 6 — Four-game MVP and session presets
 

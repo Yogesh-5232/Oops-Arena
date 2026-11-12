@@ -14,11 +14,13 @@
     <form id="private-entry" novalidate>
       <label>Capacity <input id="capacity" type="number" min="4" max="12" value="12" required></label>
       <button id="create-private" type="button">Create private party</button>
+      <button id="create-party" type="button">Create group party</button>
       <label>Room code <input id="room-code" maxlength="6" minlength="6" pattern="[A-Za-z2-9]{6}" required autocomplete="off" autocapitalize="characters"></label>
       <button type="submit">Join party</button>
     </form>
     <section id="private-room" hidden>
       <p id="room-invite"></p>
+      <button id="renew-invite" type="button" hidden>Renew party invite</button>
       <p id="match-phase"></p>
       <ul id="guests"></ul>
       <label>Match <select id="preset">
