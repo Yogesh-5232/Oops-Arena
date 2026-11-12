@@ -8,12 +8,17 @@ export type LavaStanding = { name: string; gate: number; falls: number; outMs: n
 
 export type RoundStanding = DashStanding | DodgeStanding | LavaStanding;
 
+const singleRound = { countdownMs: 5_000, roundMs: 105_000, transitionMs: 0, resultsMs: 10_000 };
+
 /** Private match presets that the room can run. Timings are the server's cutoffs. */
 export const PLAYLISTS = {
   short: {
     name: 'Short Party', rounds: ['dash', 'dodge'],
     countdownMs: 8_000, roundMs: 140_000, transitionMs: 12_000, resultsMs: 15_000,
   },
+  dash: { name: 'Dash Only', rounds: ['dash'], ...singleRound },
+  lava: { name: 'Lava Only', rounds: ['lava'], ...singleRound },
+  dodge: { name: 'Dodge Only', rounds: ['dodge'], ...singleRound },
   standard: {
     name: 'Standard Party', rounds: ['dash', 'lava', 'dodge'],
     countdownMs: 8_000, roundMs: 160_000, transitionMs: 15_000, resultsMs: 22_000,

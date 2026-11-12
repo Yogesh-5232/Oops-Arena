@@ -136,8 +136,8 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
     const input = room.input<Input>({ mode: 'reliable' });
     const panel = isPrivate ? privatePanel(
       value => room.sendUnreliable('ready', value),
-      () => room.sendUnreliable('start'),
-      value => room.sendUnreliable('preset', value),
+      () => room.send('start'),
+      value => room.send('preset', value),
       () => room.sendUnreliable('renew-invite'),
     ) : undefined;
     const canMove = () => !isPrivate || room.state.phase === 'lobby' ||

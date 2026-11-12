@@ -1,4 +1,4 @@
-import { ARENAS, DASH_GATES, LAVA_GATES, PLAYLISTS, type PartyResults, type PresetId } from '@chaos/shared';
+import { ARENAS, DASH_GATES, LAVA_GATES, PLAYLISTS, playlistMs, type PartyResults, type PresetId } from '@chaos/shared';
 
 type Guest = { name: string; ready: boolean; connected: boolean; racing: boolean; progress: number };
 export type PrivateState = {
@@ -25,7 +25,14 @@ const resultsTitle = document.querySelector<HTMLElement>('#results-title')!;
 const standings = document.querySelector<HTMLElement>('#standings')!;
 const presetPicker = document.querySelector<HTMLSelectElement>('#preset')!;
 const presetLabel = presetPicker.closest('label')!;
-const SHORT_NAMES: Record<string, string> = { dash: 'Dash', lava: 'Lava', dodge: 'Dodge' };
+const SHORT_NAMES = { dash: 'Dash', lava: 'Lava', dodge: 'Dodge' };
+
+for (const [id, playlist] of Object.entries(PLAYLISTS)) {
+  const seconds = playlistMs(playlist) / 1000;
+  const duration = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  const arenas = playlist.rounds.map(arena => SHORT_NAMES[arena]).join(', ');
+  presetPicker.add(new Option(`${playlist.name} · ${arenas} · ${duration}`, id));
+}
 
 const playlistOf = (preset: string) => PLAYLISTS[(Object.hasOwn(PLAYLISTS, preset) ? preset : 'short') as PresetId];
 const arenaName = (id: string | undefined) => id ? ARENAS[id as keyof typeof ARENAS]?.name ?? id : '';
