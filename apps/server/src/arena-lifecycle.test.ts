@@ -7,7 +7,7 @@ import { DodgeArenaRun } from './dodge-arena.js';
 import { LavaArenaRun } from './lava-arena.js';
 import { TeamArenaRun } from './team-arena.js';
 import { PartyClock } from './party-clock.js';
-import { PartyScoreboard } from './party-scoreboard.js';
+import { PartyScoreboard, TEAM_POINTS } from './party-scoreboard.js';
 
 const roster = ['a', 'b', 'c', 'd'];
 const setup = { owner: 'room-a', roster, name: (id: string) => id, seed: 7, startTick: 0, roundTicks: 4800 };
@@ -247,4 +247,29 @@ test('the finale scores like any round and is labelled as the finale', () => {
   const rows = Object.fromEntries(board.snapshot(false).rows.map(row => [row.name, row.rounds[3]!]));
   assert.deepEqual([rows.a!.points, rows.b!.points], [12, 2]);
   assert.equal(rows.a!.summary, 'Finale 1 hits');
+});
+
+test('team rounds give fixed points whatever the team sizes, and every playlist fits 120-900 s', () => {
+  const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+  const row = (name: string, team: number, delivered: boolean, active = true) =>
+    ({ name, team, deliveredMs: delivered ? 30_000 : null, progress: delivered ? 1 : 0.4, active });
+  const points = (rows: ReturnType<typeof row>[]) => {
+    const board = new PartyScoreboard(names, 'team', ['team']);
+    board.record(0, rows);
+    return Object.fromEntries(board.snapshot(false).rows.map(r => [r.name, r.rounds[0]!.points]));
+  };
+  // 5v4, the bigger team wins, then the smaller one: losers get the same points either way.
+  const big = points([...names.slice(0, 5).map(n => row(n, 0, true)), ...names.slice(5).map(n => row(n, 1, false))]);
+  const small = points([...names.slice(5).map(n => row(n, 1, true)), ...names.slice(0, 5).map(n => row(n, 0, false))]);
+  assert.deepEqual([big.a, big.f, small.f, small.a], [TEAM_POINTS.win, TEAM_POINTS.loss, TEAM_POINTS.win, TEAM_POINTS.loss]);
+  const draw = points(names.map((n, i) => row(n, i % 2, false, n !== 'i')));
+  assert.equal(draw.a, TEAM_POINTS.draw, 'equal outcomes are a draw');
+  assert.equal(draw.i, TEAM_POINTS.dnf, 'a disconnected player is a DNF');
+  const alone = points(names.map((n, i) => row(n, i < 5 ? 0 : 1, false, i < 5)));
+  assert.equal(alone.a, TEAM_POINTS.win, 'a team whose opponents all left wins');
+  assert.equal(alone.f, TEAM_POINTS.dnf);
+  for (const [id, playlist] of Object.entries(PLAYLISTS)) {
+    const ms = playlistMs(playlist);
+    assert.ok(ms >= 120_000 && ms <= 900_000, `${id} lasts ${ms / 1000} s`);
+  }
 });
