@@ -183,7 +183,14 @@ function followCamera(x: number, y: number, z: number) {
 const REMOTE_DELAY_MS = 100;
 /** A jump bigger than this between updates is a teleport (respawn), drawn as a cut, not a glide. */
 const PORTAL_ENTRY_MS = 1_050;
-type PortalTarget = { from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } };
+const PORTAL_TURN_MS = 220;
+type PortalTarget = {
+  from: { x: number; y: number; z: number };
+  to: { x: number; y: number; z: number };
+  fromRotation: pc.Quat;
+  toRotation: pc.Quat;
+};
+const portalRotation = new pc.Quat();
 type PortalEntry = {
   startedAt: number;
   targets: Map<string, PortalTarget>;
@@ -287,7 +294,18 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
         state.players.forEach((player: Player, id: string) => {
           const visible = avatars.get(id);
           const position = visible?.getPosition() ?? player;
-          targets.set(id, { from: { x: position.x, y: position.y, z: position.z }, to: portalEntryTarget(index++, count, entryPortal) });
+          const to = portalEntryTarget(index++, count, entryPortal);
+          const dx = entryPortal.x - position.x;
+          const dz = entryPortal.z - position.z;
+          const yaw = Math.hypot(dx, dz) < 0.01 ? entryPortal.yaw + Math.PI : Math.atan2(dx, dz);
+          const fromRotation = visible?.getRotation().clone() ??
+            new pc.Quat().setFromEulerAngles(0, Math.atan2(player.faceX, player.faceZ) * pc.math.RAD_TO_DEG, 0);
+          targets.set(id, {
+            from: { x: position.x, y: position.y, z: position.z },
+            to,
+            fromRotation,
+            toRotation: new pc.Quat().setFromEulerAngles(0, yaw * pc.math.RAD_TO_DEG, 0),
+          });
         });
         portalEntry = { startedAt: performance.now(), targets };
       }
@@ -483,7 +501,12 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
       }
       // The arena is already active on the server during this visual transition.
       if (portalEntry) {
-        const progress = easePortalEntry(Math.min(1, (performance.now() - portalEntry.startedAt) / PORTAL_ENTRY_MS));
+        const elapsed = performance.now() - portalEntry.startedAt;
+        const turn = easePortalEntry(pc.math.clamp(elapsed / PORTAL_TURN_MS, 0, 1));
+        const progress = easePortalEntry(pc.math.clamp(
+          (elapsed - PORTAL_TURN_MS) / (PORTAL_ENTRY_MS - PORTAL_TURN_MS), 0, 1,
+        ));
+        const nextAnimation = elapsed < PORTAL_TURN_MS ? 'Idle' : 'Run';
         for (const [id, entity] of avatars) {
           const target = portalEntry.targets.get(id);
           if (!target) continue;
@@ -491,7 +514,9 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
           const y = target.from.y + (target.to.y - target.from.y) * progress;
           const z = target.from.z + (target.to.z - target.from.z) * progress;
           entity.setPosition(x, y, z);
-          avatarAnimations.get(entity)?.transition('Run', 0.1);
+          entity.setRotation(portalRotation.slerp(target.fromRotation, target.toRotation, turn));
+          const animation = avatarAnimations.get(entity);
+          if (animation && animation.activeState !== nextAnimation) animation.transition(nextAnimation, 0.1);
           if (entity === localAvatar) followCamera(x, y, z);
         }
       } else {
