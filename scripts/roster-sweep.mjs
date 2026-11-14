@@ -164,8 +164,7 @@ try {
   }, 'sweep server did not listen');
   const groups = [];
   for (const size of sizes) {
-    // Rooms hold at least four seats; a match can start with as few as two ready players.
-    const host = await join(sdk.create('private-dash', { capacity: Math.max(4, size), build: ARENA_BUILD }));
+    const host = await join(sdk.create('private-dash', { capacity: size, build: ARENA_BUILD }));
     const group = [host];
     for (let i = 1; i < size; i++) group.push(await join(sdk.joinById(host.state.code, { build: ARENA_BUILD })));
     groups.push(group);

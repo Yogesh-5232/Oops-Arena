@@ -129,7 +129,7 @@ The phase order follows technical dependencies. Visual polish can progress withi
 
 **Main risks.** Sparse population, races in reservation handling and fragmented queues. Add queue variants only when population evidence supports them.
 
-**Progress (private group parties).** The private-room slice is implemented. **Create group party** makes a private room (capacity 4–12) that starts only when every member is connected and ready and there are at least two. The host can renew an expired invite from the lobby. Admissions lock at countdown, dropped members keep their reconnect reservation and must ready up again, and the group stays in the same room for a rematch. Concurrent joins respect capacity and released seats can be reused. Browser checks of invite renewal, reconnect, host transfer and same-party rematch remain. Protocol version is 3 (party state field and invite renewal message). The public queue is still deferred.
+**Progress (private group parties).** The private-room slice is implemented. **Create group party** makes a private room (capacity 2–12) that starts only when every member is connected and ready and there are at least two. The host can renew an expired invite from the lobby. Admissions lock at countdown, dropped members keep their reconnect reservation and must ready up again, and the group stays in the same room for a rematch. Concurrent joins respect capacity and released seats can be reused. Browser checks of invite renewal, reconnect, host transfer and same-party rematch remain. Protocol version is 3 (party state field and invite renewal message). The public queue is still deferred.
 
 ## Phase 6 — Four-game MVP and session presets
 

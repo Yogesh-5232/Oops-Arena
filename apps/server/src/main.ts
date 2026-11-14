@@ -11,7 +11,7 @@ import { DodgeArenaRun } from './dodge-arena.js';
 import { LavaArenaRun } from './lava-arena.js';
 import { TeamArenaRun } from './team-arena.js';
 import { liveArenaRuns, type ArenaRun } from './arena-run.js';
-import { PrivateLobby } from './private-lobby.js';
+import { MIN_CAPACITY, PrivateLobby } from './private-lobby.js';
 import { PartyClock } from './party-clock.js';
 import { PartyScoreboard } from './party-scoreboard.js';
 
@@ -260,7 +260,7 @@ class PrivateDash extends Playground {
     try {
       this.lobby = new PrivateLobby(options.capacity ?? CAPACITY, this.state.party);
     }
-    catch { throw new ServerError(400, 'Capacity must be a whole number from 4 to 12.'); }
+    catch { throw new ServerError(400, `Capacity must be a whole number from ${MIN_CAPACITY} to ${CAPACITY}.`); }
     this.roomId = allocateCode();
     this.state.code = this.roomId;
     this.renewInvite();

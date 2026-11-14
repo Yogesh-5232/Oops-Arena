@@ -1,6 +1,6 @@
 import { CAPACITY } from '@chaos/shared';
 
-const MIN_CAPACITY = 4;
+export const MIN_CAPACITY = 2;
 type Seat = { connected: boolean; ready: boolean };
 
 /** Room admission and readiness rules, keyed by the server-issued session ID. */

@@ -24,13 +24,14 @@ test('a dropped host retains a seat during grace and the next player takes over 
   assert.deepEqual(roster, ['b', 'c', 'd', 'e']);
 });
 
-test('two connected ready players can start either kind of private lobby', () => {
+test('two-seat private rooms can start with both players ready', () => {
   for (const party of [false, true]) {
-    const lobby = new PrivateLobby(4, party);
+    const lobby = new PrivateLobby(2, party);
     assert.ok(lobby.admit('host'));
     assert.ok(lobby.setReady('host', true));
     assert.equal(lobby.lockRoster('host'), undefined);
     assert.ok(lobby.admit('guest'));
+    assert.equal(lobby.admit('third'), false);
     assert.ok(lobby.setReady('guest', true));
     lobby.setConnected('guest', false);
     assert.equal(lobby.lockRoster('host'), undefined);
