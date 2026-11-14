@@ -7,7 +7,8 @@ import {
 
 test('manifests carry the exact collision lists the simulation uses', () => {
   assert.equal(ARENAS.plaza.boxes[0], GREYBOX_ARENA.boxes[0]);
-  assert.ok(ARENAS.plaza.boxes.slice(1).every(box => box.id.startsWith('portal-')));
+  assert.equal(ARENAS.plaza.boxes[1]?.id, 'plaza-booth');
+  assert.ok(ARENAS.plaza.boxes.slice(1).every(box => /^(plaza|portal)-/.test(box.id)));
   assert.equal(ARENAS.plaza.movers.length, 0);
   assert.equal(ARENAS.plaza.markers.length, 0);
   assert.equal(ARENAS.dash.movers, MOVERS);

@@ -29,8 +29,8 @@ app.scene.ambientLight = new pc.Color(0.7, 0.75, 0.8);
 const camera = new pc.Entity('camera');
 camera.addComponent('camera', { clearColor: new pc.Color(0.32, 0.62, 0.8) });
 function framePlaza() {
-  camera.setPosition(0, 14, 18);
-  camera.lookAt(0, 0, 0);
+  camera.setPosition(0, 11, 23);
+  camera.lookAt(0, 0.6, -3);
 }
 framePlaza();
 app.root.addChild(camera);
@@ -189,9 +189,9 @@ type PortalEntry = {
   targets: Map<string, PortalTarget>;
 };
 /** Positions every party member across the mouth of a plaza portal for the short entry animation. */
-function portalEntryTarget(index: number, count: number, preset: 'lava'): { x: number; y: number; z: number } {
-  const portal = PLAZA_PORTALS.find(candidate => candidate.preset === preset)!;
-  const across = (index - (count - 1) / 2) * 0.44;
+function portalEntryTarget(index: number, count: number, portal: (typeof PLAZA_PORTALS)[number]): { x: number; y: number; z: number } {
+  const spacing = Math.min(0.44, 1.7 / Math.max(1, count - 1));
+  const across = (index - (count - 1) / 2) * spacing;
   const forward = 0.95;
   const cos = Math.cos(portal.yaw);
   const sin = Math.sin(portal.yaw);
@@ -278,16 +278,16 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
     room.onStateChange(state => {
       patches++;
       const arenaId = isPrivate ? arenaManifest(state.arenaId).id : 'plaza';
-      const enteringLava = isPrivate && !portalEntry && shownArena === 'plaza' && state.phase === 'countdown' &&
-        state.roundIndex === 0 && state.preset === 'lava' && arenaId === 'lava';
-      if (enteringLava) {
+      const entryPortal = PLAZA_PORTALS.find(portal => portal.preset === state.preset && portal.preset === arenaId);
+      if (entryPortal && isPrivate && !portalEntry && shownArena === 'plaza' &&
+          state.phase === 'countdown' && state.roundIndex === 0) {
         const targets = new Map<string, PortalTarget>();
         const count = Math.max(1, state.players.size);
         let index = 0;
         state.players.forEach((player: Player, id: string) => {
           const visible = avatars.get(id);
           const position = visible?.getPosition() ?? player;
-          targets.set(id, { from: { x: position.x, y: position.y, z: position.z }, to: portalEntryTarget(index++, count, 'lava') });
+          targets.set(id, { from: { x: position.x, y: position.y, z: position.z }, to: portalEntryTarget(index++, count, entryPortal) });
         });
         portalEntry = { startedAt: performance.now(), targets };
       }
@@ -481,7 +481,7 @@ async function connect(action: 'playground' | 'create' | 'create-party' | 'join'
         if (shownRespawns !== undefined) cutFrames = 2;
         shownRespawns = me.state.respawns;
       }
-      // The server has already selected Lava while this short visual sequence moves everyone into its plaza portal.
+      // The arena is already active on the server during this visual transition.
       if (portalEntry) {
         const progress = easePortalEntry(Math.min(1, (performance.now() - portalEntry.startedAt) / PORTAL_ENTRY_MS));
         for (const [id, entity] of avatars) {

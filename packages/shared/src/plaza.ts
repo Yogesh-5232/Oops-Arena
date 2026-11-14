@@ -1,17 +1,44 @@
 import { GREYBOX_ARENA, type Box } from './arena.js';
 
 export const PLAZA_PORTALS = ([
-  { preset: 'dash', x: 0, z: 6.1 },
-  { preset: 'dodge', x: -13.4, z: -3.5 },
-  { preset: 'lava', x: 0, z: -12.1 },
-  { preset: 'team', x: 13.4, z: -3.5 },
-] as const).map(portal => ({ ...portal, yaw: Math.atan2(-portal.x, -3.5 - portal.z) }));
+  { preset: 'dash', x: -6.2, z: -7.8, yaw: 0.27 },
+  { preset: 'dodge', x: -8.3, z: 3.3, yaw: 0.26 },
+  { preset: 'lava', x: 6.2, z: -7.8, yaw: -0.27 },
+  { preset: 'team', x: 8.3, z: 3.3, yaw: -0.26 },
+] as const);
+
+export const PLAZA_BOOTH = {
+  x: 0, z: -9, width: 3.8, depth: 2.6, height: 2.35,
+} as const;
+
+export const PLAZA_PLANTERS = [
+  [-4.2, -8.6], [4.2, -8.6], [-11.7, -0.7], [11.7, -0.7], [-5.8, 6.5], [5.8, 6.5],
+] as const;
+
+export const PLAZA_RAIL_X = 14.2;
+
+const booth = PLAZA_BOOTH;
 
 // Collision bounds enter the build hash, so round away cross-engine trig differences.
 const bound = (value: number) => Math.round(value * 1e6) / 1e6;
 
 export const PLAZA_BOXES: readonly Box[] = [
   GREYBOX_ARENA.boxes[0],
+  {
+    id: 'plaza-booth', kind: 'wall',
+    min: [booth.x - booth.width / 2, 0, booth.z - booth.depth / 2],
+    max: [booth.x + booth.width / 2, booth.height, booth.z + booth.depth / 2],
+  },
+  ...PLAZA_PLANTERS.map(([x, z], index): Box => ({
+    id: `plaza-planter-${index}`, kind: 'wall',
+    min: [bound(x - 0.69), 0, bound(z - 0.58)],
+    max: [bound(x + 0.69), 0.9, bound(z + 0.58)],
+  })),
+  ...[-PLAZA_RAIL_X, PLAZA_RAIL_X].map((x, index): Box => ({
+    id: `plaza-rail-${index}`, kind: 'wall',
+    min: [bound(x - 0.17), 0, -10.17],
+    max: [bound(x + 0.17), 1.08, 6.17],
+  })),
   ...PLAZA_PORTALS.flatMap(portal => {
     const cos = Math.cos(portal.yaw);
     const sin = Math.sin(portal.yaw);
